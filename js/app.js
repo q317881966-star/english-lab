@@ -30,18 +30,46 @@ const App = {
 
   // === 导航 ===
   bindNavigation() {
+    // 桌面端侧边栏
     document.querySelectorAll('.nav-item').forEach(item => {
       item.addEventListener('click', () => {
         const page = item.dataset.page;
         if (page) this.switchPage(page);
       });
     });
+
+    // 移动端底部导航
+    document.querySelectorAll('.mb-nav-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const page = item.dataset.page;
+        if (page) this.switchPage(page);
+      });
+    });
+
+    // 移动端设置按钮
+    const settingsBtn = document.getElementById('btn-mobile-settings');
+    if (settingsBtn) {
+      settingsBtn.addEventListener('click', () => this._openMobileSettings());
+    }
+    const settingsClose = document.getElementById('btn-settings-close');
+    if (settingsClose) {
+      settingsClose.addEventListener('click', () => this._closeMobileSettings());
+    }
+    // 点击遮罩关闭
+    document.getElementById('settings-overlay')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) this._closeMobileSettings();
+    });
   },
 
   switchPage(page) {
     this.currentPage = page;
+    // 桌面端侧边栏
     document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
     document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
+    // 移动端底部导航
+    document.querySelectorAll('.mb-nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelector(`.mb-nav-item[data-page="${page}"]`)?.classList.add('active');
+
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(`page-${page}`)?.classList.add('active');
 
@@ -1123,6 +1151,118 @@ const App = {
     }
 
     this._refreshApiKeySection();
+  },
+
+  // === 移动端设置弹窗 ===
+  _openMobileSettings() {
+    const overlay = document.getElementById('settings-overlay');
+    const body = overlay?.querySelector('.settings-sheet-body');
+    if (!overlay || !body) return;
+
+    // 同步桌面设置区内容到弹窗
+    body.innerHTML = document.querySelector('.sidebar .settings-section')?.innerHTML || '';
+    overlay.classList.add('open');
+
+    // 重新绑定弹窗内的设置控件
+    this._bindMobileSettingsControls();
+  },
+
+  _closeMobileSettings() {
+    document.getElementById('settings-overlay')?.classList.remove('open');
+  },
+
+  _bindMobileSettingsControls() {
+    const body = document.querySelector('.settings-sheet-body');
+    if (!body) return;
+
+    // 每日新词
+    const dailyEl = body.querySelector('#setting-daily');
+    if (dailyEl) {
+      dailyEl.value = this.settings.dailyNewWords;
+      dailyEl.addEventListener('change', () => {
+        const v = Math.max(5, Math.min(50, parseInt(dailyEl.value) || 20));
+        this.settings.dailyNewWords = v;
+        this.session.dailyNewLimit = v;
+        Storage.saveSettings(this.settings);
+        // 同步桌面端
+        const desktopDaily = document.querySelector('.sidebar #setting-daily');
+        if (desktopDaily) desktopDaily.value = v;
+        this.toast(`每日新词 ${v} 个`);
+      });
+    }
+
+    // 引擎
+    const engineEl = body.querySelector('#setting-engine');
+    if (engineEl) {
+      engineEl.value = this.settings.ttsEngine || 'edge';
+      engineEl.addEventListener('change', () => {
+        this.settings.ttsEngine = engineEl.value;
+        Storage.saveSettings(this.settings);
+        this._refreshVoiceSelect();
+        this._refreshApiKeySection();
+        this.updateVoiceLabel();
+        Voice.init();
+        this.toast('引擎已切换');
+      });
+    }
+
+    // 语速
+    const speedEl = body.querySelector('#setting-speed');
+    if (speedEl) {
+      speedEl.value = this.settings.voiceSpeed;
+      speedEl.addEventListener('change', () => {
+        this.settings.voiceSpeed = parseFloat(speedEl.value);
+        Storage.saveSettings(this.settings);
+      });
+    }
+
+    // 语音
+    const voiceEl = body.querySelector('#setting-voice');
+    if (voiceEl && Voice.getAvailableVoices) {
+      const voices = Voice.getAvailableVoices();
+      voiceEl.innerHTML = voices.map(v => `<option value="${v.id}">${v.label}</option>`).join('');
+      const voiceKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
+      voiceEl.value = this.settings[voiceKey] || voices[0]?.id || '';
+      voiceEl.addEventListener('change', () => {
+        const vKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
+        this.settings[vKey] = voiceEl.value;
+        Storage.saveSettings(this.settings);
+        this.updateVoiceLabel();
+        this.toast('语音已切换');
+      });
+    }
+
+    // API Keys
+    const googleKeyEl = body.querySelector('#setting-google-key');
+    if (googleKeyEl) {
+      googleKeyEl.value = this.settings.googleApiKey || '';
+      googleKeyEl.addEventListener('change', () => {
+        this.settings.googleApiKey = googleKeyEl.value.trim();
+        Storage.saveSettings(this.settings);
+      });
+    }
+    const openaiKeyEl = body.querySelector('#setting-openai-key');
+    if (openaiKeyEl) {
+      openaiKeyEl.value = this.settings.openaiApiKey || '';
+      openaiKeyEl.addEventListener('change', () => {
+        this.settings.openaiApiKey = openaiKeyEl.value.trim();
+        Storage.saveSettings(this.settings);
+      });
+    }
+    const openaiModelEl = body.querySelector('#setting-openai-model');
+    if (openaiModelEl) {
+      openaiModelEl.value = this.settings.openaiModel || 'tts-1';
+      openaiModelEl.addEventListener('change', () => {
+        this.settings.openaiModel = openaiModelEl.value;
+        Storage.saveSettings(this.settings);
+      });
+    }
+
+    // API Key 区域显示
+    const apiSection = body.querySelector('#api-keys-section');
+    if (apiSection) {
+      apiSection.style.display = (this.settings.ttsEngine || 'edge') === 'edge' ? 'none' : 'block';
+    }
   },
 
   // === 工具 ===

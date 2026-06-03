@@ -28,7 +28,13 @@
 <body>
   <div class="app-container">
 
-    <!-- 侧边栏 -->
+    <!-- 移动端顶部栏 -->
+    <header class="mobile-header">
+      <span class="mobile-logo">English Lab</span>
+      <button class="mobile-settings-btn" id="btn-mobile-settings">⚙️</button>
+    </header>
+
+    <!-- 侧边栏（桌面端） -->
     <nav class="sidebar">
       <div class="sidebar-logo">
         <span class="en">English Lab</span>
@@ -134,6 +140,44 @@
       </div>
 
     </main>
+
+    <!-- 移动端底部导航 -->
+    <nav class="mobile-bottom-nav">
+      <button class="mb-nav-item active" data-page="vocab">
+        <span class="mb-nav-icon">📇</span>
+        <span class="mb-nav-label">单词</span>
+      </button>
+      <button class="mb-nav-item" data-page="pattern">
+        <span class="mb-nav-icon">🔤</span>
+        <span class="mb-nav-label">句型</span>
+      </button>
+      <button class="mb-nav-item" data-page="listen">
+        <span class="mb-nav-icon">🎧</span>
+        <span class="mb-nav-label">听力</span>
+      </button>
+      <button class="mb-nav-item" data-page="checkin">
+        <span class="mb-nav-icon">🔥</span>
+        <span class="mb-nav-label">打卡</span>
+      </button>
+      <button class="mb-nav-item" data-page="review">
+        <span class="mb-nav-icon">📊</span>
+        <span class="mb-nav-label">复盘</span>
+      </button>
+    </nav>
+
+    <!-- 移动端设置弹窗 -->
+    <div class="settings-overlay" id="settings-overlay">
+      <div class="settings-sheet">
+        <div class="settings-sheet-header">
+          <h3>设置</h3>
+          <button class="settings-close" id="btn-settings-close">✕</button>
+        </div>
+        <div class="settings-sheet-body">
+          <!-- JS 动态填充，与桌面端设置同步 -->
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <!-- 数据层 -->

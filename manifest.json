@@ -1,0 +1,20 @@
+{
+  "name": "English Lab — 英语学习系统",
+  "short_name": "English Lab",
+  "description": "每天一点 · 90天见效 · 句型优先 + 单词填入",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d1116",
+  "theme_color": "#0d1116",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education"],
+  "lang": "zh-CN"
+}

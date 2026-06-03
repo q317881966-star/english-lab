@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>English Lab — 英语学习系统</title>
+
+  <!-- PWA -->
+  <meta name="theme-color" content="#0d1116">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="English Lab">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <!-- Service Worker -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+  </script>
+</head>
+<body>
+  <div class="app-container">
+
+    <!-- 侧边栏 -->
+    <nav class="sidebar">
+      <div class="sidebar-logo">
+        <span class="en">English Lab</span>
+        <span class="cn">每天一点 · 90天见效</span>
+      </div>
+
+      <button class="nav-item active" data-page="vocab">
+        <span class="nav-icon">📇</span> 单词库
+        <span class="nav-badge" id="badge-review">0</span>
+      </button>
+      <button class="nav-item" data-page="pattern">
+        <span class="nav-icon">🔤</span> 句型库
+      </button>
+      <button class="nav-item" data-page="listen">
+        <span class="nav-icon">🎧</span> 听力库
+      </button>
+      <button class="nav-item" data-page="speak">
+        <span class="nav-icon">🎤</span> 口语库
+      </button>
+      <button class="nav-item" data-page="checkin">
+        <span class="nav-icon">🔥</span> 每日打卡
+        <span class="nav-badge" id="badge-streak" style="background:var(--accent-dim);color:var(--accent);">0</span>
+      </button>
+      <button class="nav-item" data-page="review">
+        <span class="nav-icon">📊</span> 周复盘
+      </button>
+
+      <div style="margin-top:auto;">
+        <div class="settings-section" style="padding:16px; margin-top:24px;">
+          <h4 style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px;">设置</h4>
+          <div class="settings-row">
+            <label>每日新词</label>
+            <input type="number" id="setting-daily" value="20" min="5" max="50" style="width:55px;">
+          </div>
+          <div class="settings-row">
+            <label>TTS引擎</label>
+            <select id="setting-engine" style="width:100%; font-size:0.75rem;">
+              <option value="edge">Microsoft Edge（免费）</option>
+              <option value="google">Google Cloud</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label>语速</label>
+            <select id="setting-speed" style="width:70px;">
+              <option value="0.5">0.5x</option>
+              <option value="0.75" selected>0.75x</option>
+              <option value="1.0">1x</option>
+            </select>
+          </div>
+          <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
+            <label>语音</label>
+            <select id="setting-voice" style="width:100%; font-size:0.75rem; padding:4px 6px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-sm);">
+            </select>
+            <span id="voice-name" style="color:var(--text-muted); font-size:0.65rem;"></span>
+          </div>
+          <div id="api-keys-section" style="display:none;">
+            <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <label style="font-size:0.75rem;">Google API Key</label>
+              <input type="password" id="setting-google-key" placeholder="输入后回车保存" style="width:100%; font-size:0.7rem; padding:4px 6px;">
+            </div>
+            <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <label style="font-size:0.75rem;">OpenAI API Key</label>
+              <input type="password" id="setting-openai-key" placeholder="sk-..." style="width:100%; font-size:0.7rem; padding:4px 6px;">
+            </div>
+            <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <label style="font-size:0.75rem;">OpenAI 模型</label>
+              <select id="setting-openai-model" style="width:100%; font-size:0.7rem; padding:4px 6px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:var(--radius-sm);">
+                <option value="tts-1">tts-1（标准）</option>
+                <option value="tts-1-hd">tts-1-hd（高清）</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </nav>
+
+    <!-- 主内容区 -->
+    <main class="main-content">
+
+      <div class="page active" id="page-vocab">
+        <div id="vocab-container"></div>
+      </div>
+
+      <div class="page" id="page-pattern">
+        <div id="pattern-container"></div>
+      </div>
+
+      <div class="page" id="page-listen">
+        <div id="listen-container"></div>
+      </div>
+
+      <div class="page" id="page-speak">
+        <div id="speak-container"></div>
+      </div>
+
+      <div class="page" id="page-checkin">
+        <div id="checkin-container"></div>
+      </div>
+
+      <div class="page" id="page-review">
+        <div id="review-container"></div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- 数据层 -->
+  <script src="data/vocabulary.js"></script>
+  <script src="data/phrases.js"></script>
+  <script src="data/dialogues.js"></script>
+  <script src="data/patterns.js"></script>
+  <script src="data/studyPlan.js"></script>
+
+  <!-- 核心模块 -->
+  <script src="js/sm2.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/voice.js"></script>
+
+  <!-- 主应用 -->
+  <script src="js/app.js"></script>
+</body>
+</html>

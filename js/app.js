@@ -23,7 +23,7 @@ const App = {
 
     this.bindNavigation();
     this.bindSettings();
-    this.switchPage('vocab');
+    this.switchPage('checkin');
     this.updateNavBadges();
     this.updateVoiceLabel();
   },
@@ -47,15 +47,14 @@ const App = {
     });
 
     // 移动端设置按钮
-    const settingsBtn = document.getElementById('btn-mobile-settings');
-    if (settingsBtn) {
-      settingsBtn.addEventListener('click', () => this._openMobileSettings());
+    const mbSettingsBtn = document.getElementById('btn-mb-settings');
+    if (mbSettingsBtn) {
+      mbSettingsBtn.addEventListener('click', () => this._openMobileSettings());
     }
     const settingsClose = document.getElementById('btn-settings-close');
     if (settingsClose) {
       settingsClose.addEventListener('click', () => this._closeMobileSettings());
     }
-    // 点击遮罩关闭
     document.getElementById('settings-overlay')?.addEventListener('click', (e) => {
       if (e.target === e.currentTarget) this._closeMobileSettings();
     });
@@ -1156,45 +1155,62 @@ const App = {
   // === 移动端设置弹窗 ===
   _openMobileSettings() {
     const overlay = document.getElementById('settings-overlay');
-    const body = overlay?.querySelector('.settings-sheet-body');
-    if (!overlay || !body) return;
-
-    // 同步桌面设置区内容到弹窗
-    body.innerHTML = document.querySelector('.sidebar .settings-section')?.innerHTML || '';
+    if (!overlay) return;
     overlay.classList.add('open');
-
-    // 重新绑定弹窗内的设置控件
-    this._bindMobileSettingsControls();
+    this._syncMobileSettings();
   },
 
   _closeMobileSettings() {
     document.getElementById('settings-overlay')?.classList.remove('open');
   },
 
-  _bindMobileSettingsControls() {
-    const body = document.querySelector('.settings-sheet-body');
-    if (!body) return;
+  // 将当前设置同步到弹窗控件（首次打开时绑定事件）
+  _syncMobileSettings() {
+    const dailyEl = document.getElementById('mb-setting-daily');
+    const engineEl = document.getElementById('mb-setting-engine');
+    const speedEl = document.getElementById('mb-setting-speed');
+    const voiceEl = document.getElementById('mb-setting-voice');
+    const voiceNameEl = document.getElementById('mb-voice-name');
+    const apiSection = document.getElementById('mb-api-keys-section');
+    const googleKeyEl = document.getElementById('mb-setting-google-key');
+    const openaiKeyEl = document.getElementById('mb-setting-openai-key');
+    const openaiModelEl = document.getElementById('mb-setting-openai-model');
 
-    // 每日新词
-    const dailyEl = body.querySelector('#setting-daily');
-    if (dailyEl) {
-      dailyEl.value = this.settings.dailyNewWords;
+    // 值同步
+    if (dailyEl) dailyEl.value = this.settings.dailyNewWords;
+    if (engineEl) engineEl.value = this.settings.ttsEngine || 'edge';
+    if (speedEl) speedEl.value = this.settings.voiceSpeed;
+    if (googleKeyEl) googleKeyEl.value = this.settings.googleApiKey || '';
+    if (openaiKeyEl) openaiKeyEl.value = this.settings.openaiApiKey || '';
+    if (openaiModelEl) openaiModelEl.value = this.settings.openaiModel || 'tts-1';
+
+    // 语音列表
+    if (voiceEl) {
+      const voices = Voice.getAvailableVoices();
+      voiceEl.innerHTML = voices.map(v => `<option value="${v.id}">${v.label}</option>`).join('');
+      const voiceKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
+      voiceEl.value = this.settings[voiceKey] || voices[0]?.id || '';
+    }
+    if (voiceNameEl) voiceNameEl.textContent = Voice.getVoiceName();
+
+    // API Key 区域
+    if (apiSection) apiSection.style.display = (this.settings.ttsEngine || 'edge') === 'edge' ? 'none' : 'block';
+
+    // 事件绑定（只绑一次，用 data-bound 标记）
+    if (dailyEl && !dailyEl.dataset.bound) {
+      dailyEl.dataset.bound = '1';
       dailyEl.addEventListener('change', () => {
         const v = Math.max(5, Math.min(50, parseInt(dailyEl.value) || 20));
         this.settings.dailyNewWords = v;
         this.session.dailyNewLimit = v;
         Storage.saveSettings(this.settings);
-        // 同步桌面端
-        const desktopDaily = document.querySelector('.sidebar #setting-daily');
-        if (desktopDaily) desktopDaily.value = v;
+        const dd = document.getElementById('setting-daily');
+        if (dd) dd.value = v;
         this.toast(`每日新词 ${v} 个`);
       });
     }
-
-    // 引擎
-    const engineEl = body.querySelector('#setting-engine');
-    if (engineEl) {
-      engineEl.value = this.settings.ttsEngine || 'edge';
+    if (engineEl && !engineEl.dataset.bound) {
+      engineEl.dataset.bound = '1';
       engineEl.addEventListener('change', () => {
         this.settings.ttsEngine = engineEl.value;
         Storage.saveSettings(this.settings);
@@ -1202,66 +1218,48 @@ const App = {
         this._refreshApiKeySection();
         this.updateVoiceLabel();
         Voice.init();
+        this._syncMobileSettings();
         this.toast('引擎已切换');
       });
     }
-
-    // 语速
-    const speedEl = body.querySelector('#setting-speed');
-    if (speedEl) {
-      speedEl.value = this.settings.voiceSpeed;
+    if (speedEl && !speedEl.dataset.bound) {
+      speedEl.dataset.bound = '1';
       speedEl.addEventListener('change', () => {
         this.settings.voiceSpeed = parseFloat(speedEl.value);
         Storage.saveSettings(this.settings);
       });
     }
-
-    // 语音
-    const voiceEl = body.querySelector('#setting-voice');
-    if (voiceEl && Voice.getAvailableVoices) {
-      const voices = Voice.getAvailableVoices();
-      voiceEl.innerHTML = voices.map(v => `<option value="${v.id}">${v.label}</option>`).join('');
-      const voiceKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
-      voiceEl.value = this.settings[voiceKey] || voices[0]?.id || '';
+    if (voiceEl && !voiceEl.dataset.bound) {
+      voiceEl.dataset.bound = '1';
       voiceEl.addEventListener('change', () => {
         const vKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
         this.settings[vKey] = voiceEl.value;
         Storage.saveSettings(this.settings);
         this.updateVoiceLabel();
+        if (voiceNameEl) voiceNameEl.textContent = Voice.getVoiceName();
         this.toast('语音已切换');
       });
     }
-
-    // API Keys
-    const googleKeyEl = body.querySelector('#setting-google-key');
-    if (googleKeyEl) {
-      googleKeyEl.value = this.settings.googleApiKey || '';
+    if (googleKeyEl && !googleKeyEl.dataset.bound) {
+      googleKeyEl.dataset.bound = '1';
       googleKeyEl.addEventListener('change', () => {
         this.settings.googleApiKey = googleKeyEl.value.trim();
         Storage.saveSettings(this.settings);
       });
     }
-    const openaiKeyEl = body.querySelector('#setting-openai-key');
-    if (openaiKeyEl) {
-      openaiKeyEl.value = this.settings.openaiApiKey || '';
+    if (openaiKeyEl && !openaiKeyEl.dataset.bound) {
+      openaiKeyEl.dataset.bound = '1';
       openaiKeyEl.addEventListener('change', () => {
         this.settings.openaiApiKey = openaiKeyEl.value.trim();
         Storage.saveSettings(this.settings);
       });
     }
-    const openaiModelEl = body.querySelector('#setting-openai-model');
-    if (openaiModelEl) {
-      openaiModelEl.value = this.settings.openaiModel || 'tts-1';
+    if (openaiModelEl && !openaiModelEl.dataset.bound) {
+      openaiModelEl.dataset.bound = '1';
       openaiModelEl.addEventListener('change', () => {
         this.settings.openaiModel = openaiModelEl.value;
         Storage.saveSettings(this.settings);
       });
-    }
-
-    // API Key 区域显示
-    const apiSection = body.querySelector('#api-keys-section');
-    if (apiSection) {
-      apiSection.style.display = (this.settings.ttsEngine || 'edge') === 'edge' ? 'none' : 'block';
     }
   },
 

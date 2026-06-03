@@ -28,12 +28,6 @@
 <body>
   <div class="app-container">
 
-    <!-- 移动端顶部栏 -->
-    <header class="mobile-header">
-      <span class="mobile-logo">English Lab</span>
-      <button class="mobile-settings-btn" id="btn-mobile-settings">⚙️</button>
-    </header>
-
     <!-- 侧边栏（桌面端） -->
     <nav class="sidebar">
       <div class="sidebar-logo">
@@ -41,7 +35,11 @@
         <span class="cn">每天一点 · 90天见效</span>
       </div>
 
-      <button class="nav-item active" data-page="vocab">
+      <button class="nav-item active" data-page="checkin">
+        <span class="nav-icon">🔥</span> 每日打卡
+        <span class="nav-badge" id="badge-streak" style="background:var(--accent-dim);color:var(--accent);">0</span>
+      </button>
+      <button class="nav-item" data-page="vocab">
         <span class="nav-icon">📇</span> 单词库
         <span class="nav-badge" id="badge-review">0</span>
       </button>
@@ -53,10 +51,6 @@
       </button>
       <button class="nav-item" data-page="speak">
         <span class="nav-icon">🎤</span> 口语库
-      </button>
-      <button class="nav-item" data-page="checkin">
-        <span class="nav-icon">🔥</span> 每日打卡
-        <span class="nav-badge" id="badge-streak" style="background:var(--accent-dim);color:var(--accent);">0</span>
       </button>
       <button class="nav-item" data-page="review">
         <span class="nav-icon">📊</span> 周复盘
@@ -115,7 +109,11 @@
     <!-- 主内容区 -->
     <main class="main-content">
 
-      <div class="page active" id="page-vocab">
+      <div class="page active" id="page-checkin">
+        <div id="checkin-container"></div>
+      </div>
+
+      <div class="page" id="page-vocab">
         <div id="vocab-container"></div>
       </div>
 
@@ -131,10 +129,6 @@
         <div id="speak-container"></div>
       </div>
 
-      <div class="page" id="page-checkin">
-        <div id="checkin-container"></div>
-      </div>
-
       <div class="page" id="page-review">
         <div id="review-container"></div>
       </div>
@@ -143,25 +137,20 @@
 
     <!-- 移动端底部导航 -->
     <nav class="mobile-bottom-nav">
-      <button class="mb-nav-item active" data-page="vocab">
-        <span class="mb-nav-icon">📇</span>
-        <span class="mb-nav-label">单词</span>
+      <button class="mb-nav-item active" data-page="checkin">
+        <span class="mb-nav-icon">🔥</span><span class="mb-nav-label">打卡</span>
+      </button>
+      <button class="mb-nav-item" data-page="vocab">
+        <span class="mb-nav-icon">📇</span><span class="mb-nav-label">单词</span>
       </button>
       <button class="mb-nav-item" data-page="pattern">
-        <span class="mb-nav-icon">🔤</span>
-        <span class="mb-nav-label">句型</span>
-      </button>
-      <button class="mb-nav-item" data-page="listen">
-        <span class="mb-nav-icon">🎧</span>
-        <span class="mb-nav-label">听力</span>
-      </button>
-      <button class="mb-nav-item" data-page="checkin">
-        <span class="mb-nav-icon">🔥</span>
-        <span class="mb-nav-label">打卡</span>
+        <span class="mb-nav-icon">🔤</span><span class="mb-nav-label">句型</span>
       </button>
       <button class="mb-nav-item" data-page="review">
-        <span class="mb-nav-icon">📊</span>
-        <span class="mb-nav-label">复盘</span>
+        <span class="mb-nav-icon">📊</span><span class="mb-nav-label">复盘</span>
+      </button>
+      <button class="mb-nav-item mb-nav-settings" id="btn-mb-settings">
+        <span class="mb-nav-icon">⚙</span><span class="mb-nav-label">设置</span>
       </button>
     </nav>
 
@@ -172,8 +161,50 @@
           <h3>设置</h3>
           <button class="settings-close" id="btn-settings-close">✕</button>
         </div>
-        <div class="settings-sheet-body">
-          <!-- JS 动态填充，与桌面端设置同步 -->
+        <div class="settings-sheet-body" id="settings-sheet-body">
+          <div class="settings-row">
+            <label>每日新词</label>
+            <input type="number" id="mb-setting-daily" value="20" min="5" max="50" style="width:60px;">
+          </div>
+          <div class="settings-row">
+            <label>TTS引擎</label>
+            <select id="mb-setting-engine">
+              <option value="edge">Edge（免费）</option>
+              <option value="google">Google Cloud</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </div>
+          <div class="settings-row">
+            <label>语速</label>
+            <select id="mb-setting-speed">
+              <option value="0.5">0.5x</option>
+              <option value="0.75" selected>0.75x</option>
+              <option value="1.0">1x</option>
+            </select>
+          </div>
+          <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:4px;">
+            <label>语音</label>
+            <select id="mb-setting-voice" style="width:100%;">
+            </select>
+            <span id="mb-voice-name" style="color:var(--text-muted); font-size:0.65rem;"></span>
+          </div>
+          <div id="mb-api-keys-section" style="display:none;">
+            <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <label>Google API Key</label>
+              <input type="password" id="mb-setting-google-key" placeholder="输入后回车保存" style="width:100%; font-size:0.7rem; padding:4px 6px;">
+            </div>
+            <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <label>OpenAI API Key</label>
+              <input type="password" id="mb-setting-openai-key" placeholder="sk-..." style="width:100%; font-size:0.7rem; padding:4px 6px;">
+            </div>
+            <div class="settings-row" style="flex-direction:column; align-items:flex-start; gap:2px;">
+              <label>OpenAI 模型</label>
+              <select id="mb-setting-openai-model" style="width:100%; font-size:0.7rem; padding:4px 6px;">
+                <option value="tts-1">tts-1（标准）</option>
+                <option value="tts-1-hd">tts-1-hd（高清）</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
     </div>

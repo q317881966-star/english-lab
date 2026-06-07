@@ -143,6 +143,27 @@ const Storage = {
     return progress;
   },
 
+  // 任务完成追踪 { "1-1": ["morning","noon","afternoon"] }
+  getTaskProgress() {
+    const raw = localStorage.getItem('elab_task_progress');
+    return raw ? JSON.parse(raw) : {};
+  },
+  toggleTask(week, day, taskKey) {
+    const tp = this.getTaskProgress();
+    const id = `${week}-${day}`;
+    if (!tp[id]) tp[id] = [];
+    const idx = tp[id].indexOf(taskKey);
+    if (idx >= 0) tp[id].splice(idx, 1);
+    else tp[id].push(taskKey);
+    localStorage.setItem('elab_task_progress', JSON.stringify(tp));
+    return tp;
+  },
+  isTaskDone(week, day, taskKey) {
+    const tp = this.getTaskProgress();
+    const id = `${week}-${day}`;
+    return tp[id] ? tp[id].includes(taskKey) : false;
+  },
+
   // === 打卡数据 ===
   getCheckins() {
     const raw = localStorage.getItem(this.KEYS.CHECKIN);

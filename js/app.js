@@ -812,15 +812,30 @@ const App = {
             <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:4px;">${weekData.theme}</div>
           </div>
 
-          <!-- 核心句型 -->
+          <!-- 核心句型 + 例句 -->
           <div class="listen-section" style="padding:16px;">
             <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">🔤 今日句型</div>
-            ${dayData.patterns.map(p => `
-              <div style="display:flex; align-items:center; gap:12px; padding:10px 12px; margin-bottom:6px; background:var(--bg); border-radius:var(--radius-sm);">
-                <code style="font-size:1rem; color:var(--accent); font-weight:600; white-space:nowrap;">${this._esc(p.en)}</code>
-                ${p.cn ? `<span style="color:var(--text-secondary); font-size:0.85rem;">${this._esc(p.cn)}</span>` : ''}
-              </div>
-            `).join('')}
+            ${dayData.patterns.map(p => {
+              const examples = this._genExamples(p.en);
+              return `
+                <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border);">
+                  <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">
+                    <code style="font-size:1.1rem; color:var(--accent); font-weight:600;">${this._esc(p.en)}</code>
+                    ${p.cn ? `<span style="color:var(--text-secondary); font-size:0.85rem;">${this._esc(p.cn)}</span>` : ''}
+                    <button class="play-pattern-btn" data-text="${this._esc(p.en)}" style="margin-left:auto; width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--bg);color:var(--text-muted);cursor:pointer;font-size:0.7rem;flex-shrink:0;">▶</button>
+                  </div>
+                  <div style="display:flex; flex-wrap:wrap; gap:4px;">
+                    ${examples.map((ex, idx) => `
+                      <span class="example-chip" data-text="${this._esc(ex)}"
+                        style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);border-radius:12px;font-size:0.8rem;color:var(--text-secondary);cursor:pointer;transition:all 0.15s;">
+                        <span style="font-family:var(--font-en);">${idx+1}. ${this._esc(ex)}</span>
+                        <span style="font-size:0.6rem;">🔊</span>
+                      </span>
+                    `).join('')}
+                  </div>
+                </div>
+              `;
+            }).join('')}
           </div>
 
           <!-- 今日单词 -->
@@ -840,20 +855,8 @@ const App = {
             </div>
           </div>
 
-          <!-- 三个任务模块 -->
-          <div style="display:flex; gap:12px; flex-wrap:wrap;">
-            <div style="flex:1; min-width:200px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px;">
-              <div style="font-size:0.9rem; font-weight:700; margin-bottom:8px;">🌅 上午 · 句型精学</div>
-              <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.6;">${this._esc(dayData.tasks.morning)}</div>
-            </div>
-            <div style="flex:1; min-width:200px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px;">
-              <div style="font-size:0.9rem; font-weight:700; margin-bottom:8px;">☀️ 中午 · AI故事输入</div>
-              <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.6;">${this._esc(dayData.tasks.noon)}</div>
-            </div>
-            <div style="flex:1; min-width:200px; background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:16px;">
-              <div style="font-size:0.9rem; font-weight:700; margin-bottom:8px;">🌆 下午 · 场景实战</div>
-              <div style="font-size:0.85rem; color:var(--text-secondary); line-height:1.6;">${this._esc(dayData.tasks.afternoon)}</div>
-            </div>
+          <!-- 三个任务模块（可交互） -->
+          ${this._renderTaskCards(progress.currentWeek, progress.currentDay, dayData.tasks)}
           </div>
 
           <!-- 打卡按钮 -->
@@ -899,9 +902,35 @@ const App = {
 
     // 绑定单词发音
     c.querySelectorAll('.plan-word-chip').forEach(chip => {
-      chip.addEventListener('click', () => {
-        const word = chip.dataset.word;
-        Voice.speak(word);
+      chip.addEventListener('click', () => { Voice.speak(chip.dataset.word); });
+    });
+
+    // 绑定例句发音
+    c.querySelectorAll('.example-chip').forEach(chip => {
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        Voice.speak(chip.dataset.text);
+      });
+      chip.addEventListener('mouseover', function() { this.style.borderColor='var(--accent)'; this.style.color='var(--text)'; });
+      chip.addEventListener('mouseout', function() { this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)'; });
+    });
+
+    // 绑定句型朗读按钮
+    c.querySelectorAll('.play-pattern-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        Voice.speak(btn.dataset.text);
+      });
+      btn.addEventListener('mouseover', function() { this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'; });
+      btn.addEventListener('mouseout', function() { this.style.color='var(--text-muted)'; this.style.borderColor='var(--border)'; });
+    });
+
+    // 绑定任务勾选
+    c.querySelectorAll('.task-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const taskKey = btn.dataset.task;
+        Storage.toggleTask(progress.currentWeek, progress.currentDay, taskKey);
+        this.renderCheckin();
       });
     });
 
@@ -920,6 +949,89 @@ const App = {
         }
       });
     }
+  },
+
+  // 根据句型模板自动生成 5 个例句
+  _genExamples(patternEn) {
+    const clean = patternEn.replace(/\.\.\./g, '').trim();
+    // 提取句型主语前缀
+    const FILL = {
+      'I am': ['I am a student.', 'I am from Beijing.', 'I am ready.', 'I am happy today.', 'I am here.'],
+      'My name is': ['My name is John.', 'My name is Li Ming.', 'My name is Anna.', 'My name is Wang Fang.', 'My name is David.'],
+      'I am from': ['I am from China.', 'I am from Shanghai.', 'I am from London.', 'I am from Tokyo.', 'I am from New York.'],
+      'This is': ['This is my book.', 'This is John.', 'This is a good idea.', 'This is my phone.', 'This is my friend.'],
+      'He is': ['He is tall.', 'He is a teacher.', 'He is my brother.', 'He is very kind.', 'He is from Canada.'],
+      'She is': ['She is beautiful.', 'She is a doctor.', 'She is my sister.', 'She is very smart.', 'She is from England.'],
+      'He/She is': ['He is tall.', 'She is a doctor.', 'He is my brother.', 'She is very kind.', 'He is from Canada.'],
+      'It is': ['It is a book.', 'It is on the table.', 'It is very good.', 'It is my pen.', 'It is raining today.'],
+      'What is': ['What is this?', 'What is your name?', 'What is that?', 'What is the time?', 'What is in the bag?'],
+      'What is this': ['What is this? — It is a book.', 'What is this? — It is my phone.', 'What is this? — It is a pen.', 'What is this? — It is a gift.', 'What is this? — It is my key.'],
+      'Is this': ['Is this your book?', 'Is this the right way?', 'Is this your pen?', 'Is this a good idea?', 'Is this your phone?'],
+      'I want': ['I want some water.', 'I want to eat.', 'I want a new book.', 'I want to go home.', 'I want to learn English.'],
+      'I would like': ['I would like some tea.', 'I would like to order now.', 'I would like a cup of coffee.', 'I would like to ask a question.', 'I would like some help.'],
+      'I like': ['I like music.', 'I like reading books.', 'I like this movie.', 'I like sunny days.', 'I like learning English.'],
+      'I don\'t like': ['I don\'t like rain.', 'I don\'t like spicy food.', 'I don\'t like getting up early.', 'I don\'t like loud music.', 'I don\'t like cold weather.'],
+      'He/She has': ['He has a new car.', 'She has beautiful eyes.', 'He has a big family.', 'She has a great job.', 'He has two brothers.'],
+      'How old': ['How old are you?', 'How old is your sister?', 'How old is this building?', 'How old is your dog?', 'How old is that book?'],
+      'How old are you': ['How old are you? — I am 25.', 'How old are you? — I am 30 years old.', 'How old are you? — I am a student.', 'How old are you? — I am 18.', 'How old are you? — I am 42.'],
+      'I am ... years old': ['I am 25 years old.', 'I am 18 years old.', 'I am 30 years old.', 'I am 42 years old.', 'I am 10 years old.'],
+      'When is': ['When is your birthday?', 'When is the party?', 'When is the meeting?', 'When is the next bus?', 'When is dinner ready?'],
+      'I think': ['I think he is right.', 'I think she is nice.', 'I think this is good.', 'I think it will rain.', 'I think we should go.'],
+      'What is he/she like': ['What is he like?', 'What is she like?', 'What is your mother like?', 'What is your boss like?', 'What is the new teacher like?'],
+      'There is': ['There is a book on the table.', 'There is a park near my house.', 'There is a problem.', 'There is a cat in the garden.', 'There is a supermarket nearby.'],
+      'There are': ['There are many people here.', 'There are three apples.', 'There are some books on the desk.', 'There are two parks in my town.', 'There are many reasons.'],
+      'I have': ['I have a dog.', 'I have two brothers.', 'I have a question.', 'I have some ideas.', 'I have a meeting today.'],
+      'Do you': ['Do you like music?', 'Do you have a pen?', 'Do you want some tea?', 'Do you speak English?', 'Do you know the answer?'],
+      'Can I': ['Can I help you?', 'Can I sit here?', 'Can I ask a question?', 'Can I borrow your pen?', 'Can I have some water?'],
+      'Can you': ['Can you help me?', 'Can you speak English?', 'Can you repeat that?', 'Can you show me the way?', 'Can you wait a moment?'],
+      'Where is': ['Where is the station?', 'Where is the bathroom?', 'Where is my phone?', 'Where is the nearest bank?', 'Where is your office?'],
+    };
+
+    // 精确匹配
+    if (FILL[clean]) return FILL[clean];
+
+    // 模糊匹配：找最接近的模板
+    const keys = Object.keys(FILL);
+    for (const k of keys) {
+      if (clean.startsWith(k) || k.startsWith(clean)) return FILL[k];
+    }
+
+    // 兜底：基于句型中的关键词生成
+    const words = clean.split(/\s+/).filter(w => w.length > 2);
+    return [
+      `${clean} — let's practice.`,
+      `Can you say "${clean}"?`,
+      `Try using "${clean}" in a sentence.`,
+      `${clean} ... now you try.`,
+      `Repeat after me: "${clean}".`,
+    ];
+  },
+
+  // 渲染可交互的任务卡片
+  _renderTaskCards(week, day, tasks) {
+    const taskDefs = [
+      { key: 'morning', icon: '🌅', title: '上午 · 句型精学', text: tasks.morning },
+      { key: 'noon', icon: '☀️', title: '中午 · AI故事输入', text: tasks.noon },
+      { key: 'afternoon', icon: '🌆', title: '下午 · 场景实战', text: tasks.afternoon },
+    ];
+    return `
+      <div style="display:flex; gap:12px; flex-wrap:wrap;">
+        ${taskDefs.map(t => {
+          const done = Storage.isTaskDone(week, day, t.key);
+          return `
+            <div style="flex:1; min-width:200px; background:var(--bg-card); border:1px solid ${done?'var(--green)':'var(--border)'}; border-radius:var(--radius); padding:16px; transition:all 0.2s;">
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <div style="font-size:0.9rem; font-weight:700;">${t.icon} ${t.title}</div>
+                <button class="task-toggle-btn" data-task="${t.key}"
+                  style="width:28px;height:28px;border-radius:50%;border:2px solid ${done?'var(--green)':'var(--border)'};background:${done?'var(--green-dim)':'var(--bg)'};color:${done?'var(--green)':'var(--text-muted)'};cursor:pointer;font-size:0.8rem;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;"
+                  title="${done?'取消完成':'标记完成'}">${done?'✓':''}</button>
+              </div>
+              <div style="font-size:0.85rem; color:${done?'var(--text-secondary)':'var(--text-secondary)'}; line-height:1.6; ${done?'opacity:0.6;':''}">${this._esc(t.text)}</div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
   },
 
   _esc(s) {

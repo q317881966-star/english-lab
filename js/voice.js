@@ -52,20 +52,21 @@ const Voice = {
     ws.send(msg);
   },
 
-  // 播放音频 chunks
+  // 播放音频 chunks（返回 Promise，失败时可降级到浏览器语音）
   _playChunks(chunks) {
-    // 在 iOS 上，Audio 元素必须在用户手势中创建/play
-    // 但我们已经"预热"了 AudioContext，所以这里 play 应该可以
-    const blob = new Blob(chunks, { type: 'audio/mp3' });
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    this._currentAudio = audio;
-    audio.play().catch(() => {
-      // iOS 可能拒绝自动播放，静默失败
-      URL.revokeObjectURL(url);
+    return new Promise((resolve, reject) => {
+      const blob = new Blob(chunks, { type: 'audio/mp3' });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      this._currentAudio = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); this._currentAudio = null; resolve(); };
+      audio.onerror = () => { URL.revokeObjectURL(url); this._currentAudio = null; reject(new Error('播放失败')); };
+      audio.play().then(() => {}).catch(() => {
+        URL.revokeObjectURL(url);
+        this._currentAudio = null;
+        reject(new Error('播放被拒'));
+      });
     });
-    audio.onended = () => { URL.revokeObjectURL(url); this._currentAudio = null; };
-    audio.onerror = () => { URL.revokeObjectURL(url); this._currentAudio = null; };
   },
 
   _speakOne(ws, text) {
@@ -118,9 +119,9 @@ const Voice = {
     this._connect().then(ws => {
       return this._speakOne(ws, text);
     }).then(chunks => {
-      this._playChunks(chunks);
+      return this._playChunks(chunks);
     }).catch(() => {
-      // 兜底：用浏览器语音
+      // Edge TTS 失败 → 兜底：用浏览器语音
       this._speakBrowser(text);
     });
   },

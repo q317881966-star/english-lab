@@ -48,6 +48,8 @@ const App = {
       src.connect(ctx.destination);
       src.start(0);
       ctx.resume();
+      // 同时激活 Voice 模块的 AudioContext
+      if (Voice._ctx && Voice._ctx.state === 'suspended') Voice._ctx.resume();
       document.removeEventListener('click', unlock);
       document.removeEventListener('touchstart', unlock);
     };

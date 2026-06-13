@@ -1,14 +1,13 @@
 // English Lab — 语音引擎
-// Edge TTS WebSocket + iOS 兼容播放
+// Edge TTS WebSocket → AudioContext 解码播放（iOS 已解锁 AudioContext）
 
 const Voice = {
   _ws: null,
-  _wsBusy: false,
-  _pending: [],        // 等待播放的文本队列
-  _currentAudio: null,
+  _ctx: null,
+  _source: null,
 
   init() {
-    // 什么都不用做，首次 speak 时自动建 WebSocket
+    this._ctx = new (window.AudioContext || window.webkitAudioContext)();
   },
 
   _uuid() {
@@ -32,7 +31,7 @@ const Voice = {
         ws.onopen = () => { ws._open = true; clearTimeout(timer); this._ws = ws; resolve(ws); };
         ws.onerror = () => { clearTimeout(timer); reject(new Error('连接失败')); };
         ws.onclose = () => { this._ws = null; };
-        ws.onmessage = () => {}; // 占位，实际在 _speakOne 里绑定
+        ws.onmessage = () => {};
       } catch(e) { reject(e); }
     });
   },
@@ -52,16 +51,31 @@ const Voice = {
     ws.send(msg);
   },
 
-  // 播放音频 chunks（返回 Promise 以便失败时走兜底）
+  // 通过已解锁的 AudioContext 播放，绕开 iOS HTML5 Audio 限制
   _playChunks(chunks) {
     return new Promise((resolve, reject) => {
+      if (!this._ctx) { reject(new Error('no ctx')); return; }
+
+      // 确保 AudioContext 处于运行状态
+      if (this._ctx.state === 'suspended') {
+        this._ctx.resume();
+      }
+
       const blob = new Blob(chunks, { type: 'audio/mp3' });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      this._currentAudio = audio;
-      audio.onended = () => { URL.revokeObjectURL(url); this._currentAudio = null; resolve(); };
-      audio.onerror = () => { URL.revokeObjectURL(url); this._currentAudio = null; reject(); };
-      audio.play().then(() => {}).catch(() => { URL.revokeObjectURL(url); this._currentAudio = null; reject(); });
+      const reader = new FileReader();
+      reader.onload = () => {
+        this._ctx.decodeAudioData(reader.result, (buf) => {
+          this.stop();
+          const src = this._ctx.createBufferSource();
+          src.buffer = buf;
+          src.connect(this._ctx.destination);
+          src.start(0);
+          this._source = src;
+          src.onended = () => { this._source = null; resolve(); };
+        }, () => { reject(new Error('decode fail')); });
+      };
+      reader.onerror = () => { reject(new Error('read fail')); };
+      reader.readAsArrayBuffer(blob);
     });
   },
 
@@ -81,7 +95,6 @@ const Voice = {
           return;
         }
         const data = new Uint8Array(event.data);
-        // 跳过 header 行（直到第一个 0x0a）
         let start = 0;
         for (let i = 0; i < Math.min(data.length, 100); i++) {
           if (data[i] === 0x0a) { start = i + 1; break; }
@@ -91,7 +104,6 @@ const Voice = {
 
       ws.addEventListener('message', onMsg);
 
-      // 发送 SSML 配置
       const config = JSON.stringify({
         context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } }
       });
@@ -108,29 +120,22 @@ const Voice = {
     });
   },
 
-  // === 对外接口 ===
   speak(text) {
     if (!text || !text.trim()) return;
 
-    this._connect().then(ws => {
-      return this._speakOne(ws, text);
-    }).then(chunks => {
-      return this._playChunks(chunks);
-    }).catch(() => {
-      // 兜底：用浏览器语音
-      this._speakBrowser(text);
-    });
+    this._connect().then(ws => this._speakOne(ws, text))
+      .then(chunks => this._playChunks(chunks))
+      .catch(() => this._speakBrowser(text));
   },
 
   stop() {
-    if (this._currentAudio) {
-      this._currentAudio.pause();
-      this._currentAudio = null;
+    if (this._source) {
+      try { this._source.stop(); } catch(e) {}
+      this._source = null;
     }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   },
 
-  // === 浏览器语音兜底 ===
   _speakBrowser(text) {
     if (!('speechSynthesis' in window)) return;
     window.speechSynthesis.cancel();

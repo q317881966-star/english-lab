@@ -3,9 +3,7 @@
 
 const Voice = {
   _ws: null,
-  _wsBusy: false,
-  _pending: [],        // 等待播放的文本队列
-  _currentAudio: null,
+  _currentCtx: null,
 
   init() {
     // 什么都不用做，首次 speak 时自动建 WebSocket
@@ -52,20 +50,35 @@ const Voice = {
     ws.send(msg);
   },
 
-  // 播放音频 chunks
+  // 播放音频 chunks（使用 Web Audio API 避开 iOS HTML5 Audio 限制）
   _playChunks(chunks) {
-    // 在 iOS 上，Audio 元素必须在用户手势中创建/play
-    // 但我们已经"预热"了 AudioContext，所以这里 play 应该可以
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    this._currentCtx = ctx;
+    const blob = new Blob(chunks, { type: 'audio/mp3' });
+    const reader = new FileReader();
+    reader.onload = () => {
+      ctx.decodeAudioData(reader.result).then(buf => {
+        if (this._currentCtx !== ctx) { ctx.close(); return; }
+        const src = ctx.createBufferSource();
+        src.buffer = buf;
+        src.connect(ctx.destination);
+        src.start(0);
+        src.onended = () => { ctx.close(); if (this._currentCtx === ctx) this._currentCtx = null; };
+      }).catch(() => {
+        this._playChunksFallback(chunks);
+      });
+    };
+    reader.onerror = () => {};
+    reader.readAsArrayBuffer(blob);
+  },
+
+  _playChunksFallback(chunks) {
     const blob = new Blob(chunks, { type: 'audio/mp3' });
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
-    this._currentAudio = audio;
-    audio.play().catch(() => {
-      // iOS 可能拒绝自动播放，静默失败
-      URL.revokeObjectURL(url);
-    });
-    audio.onended = () => { URL.revokeObjectURL(url); this._currentAudio = null; };
-    audio.onerror = () => { URL.revokeObjectURL(url); this._currentAudio = null; };
+    audio.play().catch(() => { URL.revokeObjectURL(url); });
+    audio.onended = () => { URL.revokeObjectURL(url); };
+    audio.onerror = () => { URL.revokeObjectURL(url); };
   },
 
   _speakOne(ws, text) {
@@ -126,9 +139,9 @@ const Voice = {
   },
 
   stop() {
-    if (this._currentAudio) {
-      this._currentAudio.pause();
-      this._currentAudio = null;
+    if (this._currentCtx) {
+      this._currentCtx.close();
+      this._currentCtx = null;
     }
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   },

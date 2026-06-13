@@ -39,7 +39,7 @@ const App = {
     this._buildTiers();
     this._render();
     this._bindEvents();
-    // iOS 音频解锁
+    // iOS 音频解锁（Web Audio + HTML5 Audio 双解锁）
     const unlock = () => {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const buf = ctx.createBuffer(1, 1, 22050);
@@ -48,6 +48,9 @@ const App = {
       src.connect(ctx.destination);
       src.start(0);
       ctx.resume();
+      // HTML5 Audio 也需要在用户手势中播放一次才能解锁后续异步播放
+      const a = new Audio();
+      a.play().catch(() => {});
       document.removeEventListener('click', unlock);
       document.removeEventListener('touchstart', unlock);
     };

@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>English Lab — 句型学习</title>
+  <title>English Lab — 核心句型库</title>
 
   <meta name="theme-color" content="#0d1116">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="English Lab">
+  <meta name="apple-mobile-web-app-title" content="句型库">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
 
@@ -27,50 +27,21 @@
 
 <div class="app">
 
-  <!-- 顶部栏 -->
-  <header class="header">
-    <button class="header-btn" id="btn-week-picker" aria-label="选择周">
-      <span id="header-week">第1周</span>
-    </button>
-    <div class="header-center">
-      <div class="header-theme" id="header-theme">自我介绍与基础社交</div>
-    </div>
-    <div class="header-days" id="header-days"></div>
+  <!-- 顶栏 -->
+  <header class="topbar">
+    <span class="topbar-title">English Lab</span>
+    <span class="topbar-sub">108个核心句型</span>
   </header>
 
-  <!-- 主内容区 -->
-  <main class="main" id="main-content">
-    <!-- 动态渲染 -->
-  </main>
+  <!-- 分类标签（横向滑动） -->
+  <nav class="category-tabs" id="category-tabs"></nav>
 
-  <!-- 底部操作栏 -->
-  <footer class="footer">
-    <button class="footer-btn" id="btn-prev">◀ 上一天</button>
-    <button class="footer-btn primary" id="btn-done">✅ 完成今日</button>
-    <button class="footer-btn" id="btn-next">下一天 ▶</button>
-  </footer>
-
-  <!-- 周选择弹窗 -->
-  <div class="sheet-overlay" id="week-overlay">
-    <div class="sheet">
-      <div class="sheet-header">
-        <h3>选择学习周</h3>
-        <button class="sheet-close" id="btn-week-close">✕</button>
-      </div>
-      <div class="sheet-body" id="week-list"></div>
-    </div>
-  </div>
-
-  <!-- Toast -->
-  <div class="toast" id="toast"></div>
+  <!-- 句型列表（滚动） -->
+  <main class="main" id="main-content"></main>
 
 </div>
 
-<!-- 数据 -->
-<script src="data/studyPlan.js"></script>
 <script src="data/patterns.js"></script>
-
-<!-- 核心 -->
 <script src="js/voice.js"></script>
 <script src="js/app.js"></script>
 

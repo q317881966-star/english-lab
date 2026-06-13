@@ -39,7 +39,7 @@ const App = {
     this._buildTiers();
     this._render();
     this._bindEvents();
-    // iOS 音频解锁（Web Audio + HTML5 Audio 双解锁）
+    // iOS 音频解锁：首次触摸时预热 AudioContext
     const unlock = () => {
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const buf = ctx.createBuffer(1, 1, 22050);
@@ -48,9 +48,6 @@ const App = {
       src.connect(ctx.destination);
       src.start(0);
       ctx.resume();
-      // HTML5 Audio 也需要在用户手势中播放一次才能解锁后续异步播放
-      const a = new Audio();
-      a.play().catch(() => {});
       document.removeEventListener('click', unlock);
       document.removeEventListener('touchstart', unlock);
     };
@@ -87,7 +84,6 @@ const App = {
 
       html += `<div class="tier-section"><div class="tier-header ${label.cls}">${label.icon} ${label.name} <span class="tier-count">${total}条</span></div>`;
 
-      // 按 CAT_ORDER 排列分类
       CAT_ORDER.forEach(cat => {
         const patterns = cats[cat];
         if (!patterns || patterns.length === 0) return;
@@ -99,7 +95,6 @@ const App = {
         `;
       });
 
-      // 处理不在 CAT_ORDER 中的分类
       Object.keys(cats).forEach(cat => {
         if (CAT_ORDER.includes(cat)) return;
         const patterns = cats[cat];

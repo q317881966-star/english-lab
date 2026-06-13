@@ -1,1389 +1,334 @@
-// English Lab — 英语学习系统
-// 单词库 → 句型库 → 听力库 → 口语库 → 每日打卡 → 周复盘
+// English Lab — 句型学习（精简版）
+// 聚焦句型 + 匹配单词，手机优先
 
 const App = {
-  currentPage: 'vocab',
-  vocabulary: [],
-  settings: {},
-  stats: {},
-
-  session: {
-    queue: [], queueIndex: 0,
-    newWordsToday: 0, reviewsToday: 0,
-    dailyNewLimit: 20,
-  },
+  _current: { week: 1, day: 1 },
+  _completed: {},
 
   // === 初始化 ===
   init() {
     Voice.init();
-    this.vocabulary = Storage.getVocabulary();
-    this.settings = Storage.getSettings();
-    this.stats = Storage.getStats();
-    this.session.dailyNewLimit = this.settings.dailyNewWords;
-
-    this.bindNavigation();
-    this.bindSettings();
-    this.switchPage('checkin');
-    this.updateNavBadges();
-    this.updateVoiceLabel();
+    this._loadProgress();
+    this._bindUI();
+    this._render();
   },
 
-  // === 导航 ===
-  bindNavigation() {
-    // 桌面端侧边栏
-    document.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const page = item.dataset.page;
-        if (page) this.switchPage(page);
-      });
-    });
-
-    // 移动端底部导航
-    document.querySelectorAll('.mb-nav-item').forEach(item => {
-      item.addEventListener('click', () => {
-        const page = item.dataset.page;
-        if (page) this.switchPage(page);
-      });
-    });
-
-    // 移动端设置按钮
-    const mbSettingsBtn = document.getElementById('btn-mb-settings');
-    if (mbSettingsBtn) {
-      mbSettingsBtn.addEventListener('click', () => this._openMobileSettings());
-    }
-    const settingsClose = document.getElementById('btn-settings-close');
-    if (settingsClose) {
-      settingsClose.addEventListener('click', () => this._closeMobileSettings());
-    }
-    document.getElementById('settings-overlay')?.addEventListener('click', (e) => {
-      if (e.target === e.currentTarget) this._closeMobileSettings();
-    });
-  },
-
-  switchPage(page) {
-    this.currentPage = page;
-    // 桌面端侧边栏
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector(`.nav-item[data-page="${page}"]`)?.classList.add('active');
-    // 移动端底部导航
-    document.querySelectorAll('.mb-nav-item').forEach(n => n.classList.remove('active'));
-    document.querySelector(`.mb-nav-item[data-page="${page}"]`)?.classList.add('active');
-
-    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-    document.getElementById(`page-${page}`)?.classList.add('active');
-
-    switch (page) {
-      case 'vocab': this.renderVocab(); break;
-      case 'pattern': this.renderPattern(); break;
-      case 'listen': this.renderListen(); break;
-      case 'speak': this.renderSpeak(); break;
-      case 'checkin': this.renderCheckin(); break;
-      case 'review': this.renderReview(); break;
-    }
-  },
-
-  updateNavBadges() {
-    const due = SM2.getDueCards(this.vocabulary).length;
-    const badge = document.getElementById('badge-review');
-    if (badge) { badge.textContent = due; badge.style.display = due > 0 ? 'inline' : 'none'; }
-
-    const streakEl = document.getElementById('badge-streak');
-    if (streakEl) { streakEl.textContent = this.stats.streakDays; streakEl.style.display = this.stats.streakDays > 0 ? 'inline' : 'none'; }
-  },
-
-  updateVoiceLabel() {
-    const el = document.getElementById('voice-name');
-    if (el) el.textContent = Voice.getVoiceName();
-  },
-
-  // 刷新语音下拉框（引擎切换时重新填充）
-  _refreshVoiceSelect() {
-    const voiceEl = document.getElementById('setting-voice');
-    if (!voiceEl) return;
-    const voices = Voice.getAvailableVoices();
-    voiceEl.innerHTML = voices.map(v =>
-      `<option value="${v.id}">${v.label}</option>`
-    ).join('');
-    const voiceKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
-    voiceEl.value = this.settings[voiceKey] || voices[0]?.id || '';
-  },
-
-  // 显示/隐藏 API Key 输入区
-  _refreshApiKeySection() {
-    const section = document.getElementById('api-keys-section');
-    if (!section) return;
-    const engine = this.settings.ttsEngine || 'edge';
-    section.style.display = engine === 'edge' ? 'none' : 'block';
-  },
-
-  // ================================================================
-  // 听力库
-  // ================================================================
-  renderListen() {
-    const c = document.getElementById('listen-container');
-    c.innerHTML = `
-      <div class="page-header">
-        <h2>🎧 第1层：听力输入</h2>
-        <p>先听清楚，再模仿。每天15分钟。</p>
-      </div>
-      <div style="display:flex; gap:10px; margin-bottom:24px;">
-        <button class="btn active" id="lbtn-dict">听写模式</button>
-        <button class="btn" id="lbtn-shadow">跟读模式</button>
-      </div>
-      <div id="listen-mode-area"></div>
-    `;
-
-    this._listenTab = 'dict';
-    this._renderListenMode('dict');
-
-    document.getElementById('lbtn-dict').addEventListener('click', () => {
-      this._listenTab = 'dict';
-      document.getElementById('lbtn-dict').classList.add('active');
-      document.getElementById('lbtn-shadow').classList.remove('active');
-      this._renderListenMode('dict');
-    });
-    document.getElementById('lbtn-shadow').addEventListener('click', () => {
-      this._listenTab = 'shadow';
-      document.getElementById('lbtn-shadow').classList.add('active');
-      document.getElementById('lbtn-dict').classList.remove('active');
-      this._renderListenMode('shadow');
-    });
-  },
-
-  _renderListenMode(mode) {
-    const area = document.getElementById('listen-mode-area');
-    // 选词：优先从已学或常用词中选
-    const pool = this.vocabulary.filter(v => v.totalReviews > 0);
-    const word = (pool.length > 5 ? pool : this.vocabulary)[Math.floor(Math.random() * this.vocabulary.length)];
-
-    if (mode === 'dict') {
-      area.innerHTML = `
-        <div class="listen-section">
-          <div class="listen-speed">
-            <button class="speed-btn" data-sp="0.5">0.5x</button>
-            <button class="speed-btn active" data-sp="0.75">0.75x</button>
-            <button class="speed-btn" data-sp="1.0">1x</button>
-          </div>
-          <div style="text-align:center; margin:20px 0;">
-            <p style="color:var(--text-muted);">听单词，输入拼写</p>
-            <button class="listen-btn primary" id="l-play" style="margin-top:12px;">🔊 播放单词</button>
-          </div>
-          <div class="listen-input-area">
-            <input class="listen-input" id="l-input" placeholder="输入你听到的单词..." autocomplete="off">
-            <button class="listen-btn primary" id="l-check">检查</button>
-          </div>
-          <p class="hint-link" id="l-hint" style="text-align:center; margin-top:8px; color:var(--text-muted); cursor:pointer;">💡 给个提示</p>
-          <div id="l-result" style="margin-top:14px;"></div>
-          <div id="l-hint-text" style="color:var(--text-muted); font-size:0.85rem; text-align:center; margin-top:6px;"></div>
-        </div>
-        <button class="btn" id="l-next" style="width:100%; margin-top:16px;">→ 下一个词</button>`;
-
-      let speed = 0.75;
-      area.querySelectorAll('.speed-btn').forEach(b => {
-        b.addEventListener('click', () => {
-          speed = parseFloat(b.dataset.sp);
-          area.querySelectorAll('.speed-btn').forEach(x => x.classList.remove('active'));
-          b.classList.add('active');
-        });
-      });
-      document.getElementById('l-play').addEventListener('click', () => Voice.speakWord(word.word));
-      document.getElementById('l-check').addEventListener('click', () => {
-        const inp = document.getElementById('l-input').value.trim().toLowerCase();
-        const correct = word.word.toLowerCase();
-        const el = document.getElementById('l-input');
-        const res = document.getElementById('l-result');
-        el.className = 'listen-input ' + (inp === correct ? 'correct' : 'wrong');
-        res.innerHTML = inp === correct
-          ? `<div class="listen-result correct"><strong>✅ 正确！</strong> ${word.word} — ${word.meaning}</div>`
-          : `<div class="listen-result wrong"><strong>❌ 不对</strong>，你写的是 "${inp}"<br>正确答案：<b>${word.word}</b> — ${word.meaning}<br><i>${word.example || ''}</i></div>`;
-      });
-      document.getElementById('l-hint').addEventListener('click', () => {
-        document.getElementById('l-hint-text').textContent = `提示：${word.phonetic || ''}「${word.meaning}」，${word.word.length} 个字母`;
-      });
-      document.getElementById('l-next').addEventListener('click', () => this._renderListenMode('dict'));
-    } else {
-      // 跟读模式
-      area.innerHTML = `
-        <div class="listen-section">
-          <div class="listen-speed">
-            <button class="speed-btn" data-sp="0.75">0.75x</button>
-            <button class="speed-btn active" data-sp="0.9">0.9x</button>
-            <button class="speed-btn" data-sp="1.0">1x</button>
-          </div>
-          <p style="font-size:2rem; font-family:var(--font-en); text-align:center; margin:28px 0;">${word.word}</p>
-          <p style="color:var(--text-muted); text-align:center;">${word.phonetic || ''} — ${word.meaning}</p>
-          <div style="display:flex; gap:10px; justify-content:center; margin:20px 0;">
-            <button class="listen-btn primary" id="s-play">🔊 听发音</button>
-            <button class="listen-btn" id="s-speak">🎤 跟读</button>
-          </div>
-          <div id="s-result"></div>
-        </div>
-        <button class="btn" id="s-next" style="width:100%; margin-top:16px;">→ 换一个词</button>`;
-
-      let speed = 0.9;
-      area.querySelectorAll('.speed-btn').forEach(b => {
-        b.addEventListener('click', () => {
-          speed = parseFloat(b.dataset.sp);
-          area.querySelectorAll('.speed-btn').forEach(x => x.classList.remove('active'));
-          b.classList.add('active');
-        });
-      });
-      document.getElementById('s-play').addEventListener('click', () => Voice.speak(word.word, { rate: speed }));
-      document.getElementById('s-speak').addEventListener('click', async () => {
-        const r = document.getElementById('s-result');
-        r.innerHTML = '<p style="color:var(--text-muted);">正在听你读...</p>';
-        if (!Voice.checkRecognition()) {
-          r.innerHTML = '<div class="listen-result wrong">需要 Chrome 浏览器才能使用语音识别。</div>';
-          return;
-        }
-        try {
-          const spoken = await Voice.startRecognition({ lang: 'en-US' });
-          const cmp = Voice.comparePronunciation(word.word, spoken);
-          r.innerHTML = cmp.match
-            ? `<div class="listen-result correct"><strong>👍 不错！</strong> 识别: "${spoken}" (${cmp.score}%)</div>`
-            : `<div class="listen-result wrong"><strong>🔄 再试试</strong> 识别: "${spoken}" (${cmp.score}%)<br>目标: <b>${word.word}</b></div>`;
-        } catch (err) {
-          r.innerHTML = `<div class="listen-result wrong">${err.message}</div>`;
-        }
-      });
-      document.getElementById('s-next').addEventListener('click', () => this._renderListenMode('shadow'));
-    }
-  },
-
-  // ================================================================
-  // 第2层：词汇 (Vocabulary) — 3级词库 + SM-2闪卡
-  // ================================================================
-  renderVocab() {
-    const c = document.getElementById('vocab-container');
-    const tier = this._vocabTier || 'core';
-    const mode = this._vocabMode || 'browse';
-
-    const tierLabel = { core: '🔴 核心300', high: '🟡 高频2000', biz: '🟢 行业500' };
-
-    c.innerHTML = `
-      <div class="page-header">
-        <h2>📇 第2层：词汇积累</h2>
-        <p>核心300 → 高频2000 → 行业500，逐级攻克</p>
-      </div>
-      <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; align-items:center; justify-content:space-between;">
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          ${['core','high','biz'].map(t =>
-            `<button class="btn small ${tier===t?'accent':''}" id="vt-${t}">${tierLabel[t]}</button>`
-          ).join('')}
-        </div>
-        <div class="vocab-mode-toggle">
-          <button class="${mode==='browse'?'active':''}" id="vm-browse">📋 浏览</button>
-          <button class="${mode==='flashcard'?'active':''}" id="vm-flashcard">🃏 闪卡</button>
-        </div>
-      </div>
-      <div style="margin-bottom:12px; display:flex; gap:16px; font-size:0.85rem; color:var(--text-muted);">
-        <span id="vt-progress"></span>
-      </div>
-      <div id="vocab-card-area"></div>
-    `;
-
-    ['core','high','biz'].forEach(t => {
-      document.getElementById(`vt-${t}`).addEventListener('click', () => {
-        this._vocabTier = t;
-        this.renderVocab();
-      });
-    });
-
-    document.getElementById('vm-browse').addEventListener('click', () => {
-      this._vocabMode = 'browse';
-      this.renderVocab();
-    });
-    document.getElementById('vm-flashcard').addEventListener('click', () => {
-      this._vocabMode = 'flashcard';
-      this.renderVocab();
-    });
-
-    if (mode === 'browse') {
-      this._renderVocabBrowse(tier);
-    } else {
-      this._renderVocabCard(tier);
-    }
-  },
-
-  _renderVocabBrowse(tier) {
-    const displayPool = this.vocabulary.filter(v => v.tier === tier);
-    const area = document.getElementById('vocab-card-area');
-    const progressEl = document.getElementById('vt-progress');
-    const totalKnown = displayPool.filter(v => v.browseKnown).length;
-
-    if (progressEl) {
-      progressEl.innerHTML = `已学 <b style="color:var(--accent);">${totalKnown}</b>/${displayPool.length} · 点击 🔊 听发音 · 点 ✓ 标记已认识`;
-    }
-
-    if (displayPool.length === 0) {
-      area.innerHTML = `<div class="empty-state"><div class="icon">📭</div><h3>该级别暂无词汇</h3></div>`;
-      return;
-    }
-
-    const rows = displayPool.map((v, i) => {
-      const known = v.browseKnown;
-      return `
-        <div class="vocab-word-row${known ? ' known' : ''}" data-id="${v.id}">
-          <span class="vocab-word-num">${i + 1}</span>
-          <span class="vocab-word-en">${v.word}</span>
-          <span class="vocab-word-cn">${v.meaning}</span>
-          <span class="vocab-word-cat">${v.category||''}</span>
-          <button class="vocab-word-play" data-word="${v.word}">🔊</button>
-          <button class="vocab-word-mark" data-id="${v.id}">${known ? '✓ 已学' : '✓ 认识'}</button>
-          <button class="vocab-word-undo" data-id="${v.id}">↩ 撤销</button>
-        </div>
-      `;
-    }).join('');
-
-    area.innerHTML = `<div class="vocab-word-grid">${rows}</div>`;
-
-    // 绑定发音按钮
-    area.querySelectorAll('.vocab-word-play').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const word = btn.dataset.word;
-        if (word) Voice.speakWord(word);
-      });
-    });
-
-    // 绑定"认识"按钮 — 原地更新，不重新渲染
-    area.querySelectorAll('.vocab-word-mark').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.id;
-        this._markWordKnown(id, true);
-        // 原地更新 DOM
-        const row = btn.closest('.vocab-word-row');
-        row.classList.add('known');
-        btn.textContent = '✓ 已学';
-        btn.style.opacity = '0.4';
-        btn.style.pointerEvents = 'none';
-        const undoBtn = row.querySelector('.vocab-word-undo');
-        undoBtn.style.display = 'inline-block';
-        this._updateBrowseProgress(tier);
-      });
-    });
-
-    // 绑定"撤销"按钮 — 原地更新，不重新渲染
-    area.querySelectorAll('.vocab-word-undo').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const id = btn.dataset.id;
-        this._markWordKnown(id, false);
-        // 原地更新 DOM
-        const row = btn.closest('.vocab-word-row');
-        row.classList.remove('known');
-        const markBtn = row.querySelector('.vocab-word-mark');
-        markBtn.textContent = '✓ 认识';
-        markBtn.style.opacity = '';
-        markBtn.style.pointerEvents = '';
-        btn.style.display = 'none';
-        this._updateBrowseProgress(tier);
-      });
-    });
-
-    // 点击整行也发音
-    area.querySelectorAll('.vocab-word-row').forEach(row => {
-      row.addEventListener('click', () => {
-        const word = row.querySelector('.vocab-word-en')?.textContent;
-        if (word) Voice.speakWord(word);
-      });
-    });
-  },
-
-  _markWordKnown(wordId, known) {
-    const vi = this.vocabulary.findIndex(v => v.id === wordId);
-    if (vi < 0) return;
-    this.vocabulary[vi].browseKnown = known;
-    Storage.saveVocabulary(this.vocabulary);
-  },
-
-  _updateBrowseProgress(tier) {
-    const displayPool = this.vocabulary.filter(v => v.tier === tier);
-    const totalKnown = displayPool.filter(v => v.browseKnown).length;
-    const el = document.getElementById('vt-progress');
-    if (el) {
-      el.innerHTML = `已学 <b style="color:var(--accent);">${totalKnown}</b>/${displayPool.length} · 点击 🔊 听发音 · 点 ✓ 标记已认识`;
-    }
-  },
-
-  _renderVocabCard(tier) {
-    // 按 tier 字段筛选词汇
-    const displayPool = this.vocabulary.filter(v => v.tier === tier);
-
-    // 准备复习队列
-    const due = SM2.getDueCards(displayPool);
-    const newCards = SM2.getNewCards(displayPool, this.session.dailyNewLimit);
-    const hot = SM2.getHotCards(displayPool).filter(c => SM2.isDue(c));
-    const queue = [...hot, ...due, ...newCards];
-
-    const el = document.getElementById('vocab-card-area');
-    const progressEl = document.getElementById('vt-progress');
-    const totalStudied = displayPool.filter(v => v.totalReviews > 0).length;
-
-    if (progressEl) {
-      progressEl.innerHTML = `已学 <b style="color:var(--accent);">${totalStudied}</b>/${displayPool.length} · 今日待复习 <b style="color:var(--blue);">${due.length}</b>`;
-    }
-
-    if (queue.length === 0) {
-      el.innerHTML = `<div class="empty-state"><div class="icon">🎉</div><h3>这个级别的词今天学完了</h3><p>换个级别，或去练句型</p></div>`;
-      return;
-    }
-
-    const card = queue[0];
-    this._sessionQueue = queue;
-    this._sessionIdx = 0;
-    this._renderSingleCard(card, queue.length);
-  },
-
-  _renderSingleCard(card, total) {
-    const area = document.getElementById('vocab-card-area');
-    const idx = this._sessionIdx;
-    const isReview = card.totalReviews > 0;
-
-    area.innerHTML = `
-      <div class="flashcard-wrapper">
-        <div style="display:flex; justify-content:space-between; width:100%; max-width:500px; margin-bottom:4px;">
-          <span style="color:var(--text-muted); font-size:0.8rem;">${isReview?'复习':'新词'} · ${idx+1}/${total} · ${card.category||''}</span>
-          <span style="color:var(--text-muted); font-size:0.8rem;">连对${card.streak||0}次</span>
-        </div>
-        <div class="progress-bar"><div class="progress-fill" style="width:${idx/total*100}%"></div></div>
-        <div class="flashcard" id="fc" data-flipped="false">
-          <div class="flashcard-front">
-            <div class="flashcard-word">${card.word}</div>
-            <div class="flashcard-phonetic">${card.phonetic||''}</div>
-            <button class="flashcard-play" id="fc-play">🔊</button>
-          </div>
-          <div class="flashcard-back">
-            <div class="flashcard-word" style="font-size:1.2rem; color:var(--accent);">${card.word}</div>
-            <div class="flashcard-meaning">${card.meaning}</div>
-            <div class="flashcard-example">"${card.example||''}"</div>
-            <div class="flashcard-example-cn">${card.exampleCn||''}</div>
-            <button class="flashcard-play" id="fc-play2">🔊</button>
-          </div>
-          <div class="flashcard-hint">点击翻转</div>
-        </div>
-        <div class="rating-buttons" id="fc-ratings" style="display:none;">
-          <button class="rating-btn again" data-q="0">不认识<div class="rating-label">明天再来</div></button>
-          <button class="rating-btn hard" data-q="3">模糊<div class="rating-label">有点印象</div></button>
-          <button class="rating-btn good" data-q="5">认识<div class="rating-label">轻松想起</div></button>
-        </div>
-      </div>`;
-
-    const fc = document.getElementById('fc');
-    fc.addEventListener('click', () => {
-      fc.dataset.flipped = 'true';
-      fc.classList.add('flipped');
-      document.getElementById('fc-ratings').style.display = 'flex';
-      if (this.settings.autoPlay !== false) Voice.speakWord(card.word);
-    });
-
-    const bindPlay = (id) => {
-      document.getElementById(id)?.addEventListener('click', (e) => { e.stopPropagation(); Voice.speakWord(card.word); });
-    };
-    bindPlay('fc-play');
-    bindPlay('fc-play2');
-
-    document.querySelectorAll('#fc-ratings .rating-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const q = parseInt(btn.dataset.q);
-        const vi = this.vocabulary.findIndex(v => v.id === card.id);
-        if (vi >= 0) {
-          this.vocabulary[vi] = SM2.calculate(card, q);
-          Storage.saveVocabulary(this.vocabulary);
-        }
-        this.session.reviewsToday++;
-        Storage.recordStudy(card.totalReviews===0?1:0, 1);
-        Storage.checkinToday();
-
-        this._sessionIdx++;
-        this.updateNavBadges();
-
-        if (this._sessionIdx >= this._sessionQueue.length) {
-          document.getElementById('vocab-card-area').innerHTML =
-            `<div class="empty-state"><div class="icon">🎉</div><h3>本轮完成！</h3><p>去第3层练句型吧</p></div>`;
-          return;
-        }
-        this._renderSingleCard(this._sessionQueue[this._sessionIdx], this._sessionQueue.length);
-      });
-    });
-  },
-
-  // ================================================================
-  // 第3层：句型 (Patterns) — 100句型 + 替换练习
-  // ================================================================
-  renderPattern() {
-    const c = document.getElementById('pattern-container');
-    const functions = [...new Set(SENTENCE_PATTERNS.map(p => p.function))];
-    const activeFunc = this._patFunc || functions[0];
-
-    c.innerHTML = `
-      <div class="page-header">
-        <h2>🔤 第3层：句型训练</h2>
-        <p>100个万能句型，每个学会替换5种说法</p>
-      </div>
-      <div style="display:flex; gap:6px; margin-bottom:20px; flex-wrap:wrap;" id="pat-funcs">
-        ${functions.map(f => `<button class="btn small ${f===activeFunc?'accent':''}" data-f="${f}">${f}</button>`).join('')}
-      </div>
-      <div id="pat-list"></div>
-    `;
-
-    document.querySelectorAll('#pat-funcs .btn').forEach(b => {
-      b.addEventListener('click', () => {
-        this._patFunc = b.dataset.f;
-        this.renderPattern();
-      });
-    });
-
-    this._renderPatternList(activeFunc);
-  },
-
-  _renderPatternList(func) {
-    const list = document.getElementById('pat-list');
-    const patterns = SENTENCE_PATTERNS.filter(p => p.function === func);
-
-    list.innerHTML = patterns.map((p, i) => `
-      <div class="pattern-card" id="pat-${i}">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-          <div>
-            <p style="font-family:var(--font-en); font-size:1.1rem; margin-bottom:2px;">
-              <b>${p.pattern.replace(/____/g, '<span class="pat-blank">______</span>')}</b>
-            </p>
-            <p style="color:var(--text-muted); font-size:0.85rem;">${p.cn}</p>
-          </div>
-          <button class="listen-btn small pat-play-btn" data-pat="${i}">🔊</button>
-        </div>
-        <div class="pat-examples" style="display:none; margin-top:12px;">
-          ${p.examples.map((ex, j) => `
-            <div class="pat-ex" data-ex="${j}" style="padding:8px 0; border-bottom:1px solid var(--border); cursor:pointer;">
-              <span style="font-family:var(--font-en);">${ex}</span>
-              ${p.examplesCn && p.examplesCn[j] ? `<span style="color:var(--text-muted); font-size:0.8rem; display:block; margin-top:2px;">${p.examplesCn[j]}</span>` : ''}
-              <button class="listen-btn small pat-ex-play" style="margin-left:8px;" data-text="${ex.replace(/"/g, '&quot;')}">🔊</button>
-            </div>
-          `).join('')}
-        </div>
-        <p style="color:var(--text-muted); font-size:0.75rem; margin-top:6px; cursor:pointer;" class="pat-toggle" data-pat="${i}">展开 ${p.examples.length} 个例句 ▼</p>
-      </div>
-    `).join('');
-
-    // 展开/折叠
-    list.querySelectorAll('.pat-toggle').forEach(t => {
-      t.addEventListener('click', () => {
-        const i = t.dataset.pat;
-        const exDiv = document.getElementById(`pat-${i}`).querySelector('.pat-examples');
-        const isOpen = exDiv.style.display !== 'none';
-        exDiv.style.display = isOpen ? 'none' : 'block';
-        t.textContent = isOpen ? `展开 ${patterns[i].examples.length} 个例句 ▼` : '收起 ▲';
-      });
-    });
-
-    // 播放句型
-    list.querySelectorAll('.pat-play-btn').forEach(b => {
-      b.addEventListener('click', () => {
-        const p = patterns[parseInt(b.dataset.pat)];
-        Voice.speakSentence(p.pattern.replace('____', 'something'));
-      });
-    });
-
-    // 播放例句
-    list.querySelectorAll('.pat-ex-play').forEach(b => {
-      b.addEventListener('click', (e) => {
-        e.stopPropagation();
-        Voice.speakSentence(b.dataset.text);
-      });
-    });
-  },
-
-  // ================================================================
-  // 第4层：输出 (Speaking) — 自由表达 + 录音自检
-  // ================================================================
-  renderSpeak() {
-    const c = document.getElementById('speak-container');
-    c.innerHTML = `
-      <div class="page-header">
-        <h2>🎤 第4层：输出练习</h2>
-        <p>把你今天学的说出来，哪怕只有一句</p>
-      </div>
-
-      <!-- 今日输出任务 -->
-      <div class="listen-section" style="margin-bottom:20px;">
-        <h4 style="margin-bottom:8px;">📋 今日输出任务</h4>
-        <p id="speak-task" style="font-size:1.1rem; margin:12px 0; color:var(--accent);"></p>
-        <button class="btn small" id="speak-new-task">🔄 换一个话题</button>
-      </div>
-
-      <!-- 录音区 -->
-      <div class="listen-section" style="margin-bottom:20px;">
-        <h4 style="margin-bottom:12px;">🎙️ 你的回答</h4>
-        <textarea id="speak-text" placeholder="写下你想说的英语..." style="width:100%; min-height:100px; padding:12px; border-radius:8px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-family:var(--font-en); font-size:0.95rem; resize:vertical;"></textarea>
-        <div style="display:flex; gap:8px; margin-top:10px;">
-          <button class="listen-btn primary" id="speak-listen">🔊 听自己的回答</button>
-          <button class="listen-btn" id="speak-record">🎤 语音输入</button>
-        </div>
-        <div id="speak-result" style="margin-top:12px;"></div>
-      </div>
-
-      <!-- 自我检查 -->
-      <div class="listen-section">
-        <h4 style="margin-bottom:12px;">✅ 自我检查清单</h4>
-        <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer;">
-          <input type="checkbox" id="sc-grammar"> 主谓宾完整吗？
-        </label>
-        <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer;">
-          <input type="checkbox" id="sc-tense"> 时态对吗？
-        </label>
-        <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer;">
-          <input type="checkbox" id="sc-word"> 词用对了吗？
-        </label>
-        <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px; cursor:pointer;">
-          <input type="checkbox" id="sc-natural"> 听起来自然吗？
-        </label>
-        <button class="btn small accent" id="speak-save" style="margin-top:12px;">✅ 保存到航海日志</button>
-      </div>
-    `;
-
-    // 随机话题
-    const topics = [
-      "Introduce yourself. Who are you and what do you do?",
-      "What did you do yesterday? Tell me 3 things.",
-      "Describe your product. Why should someone buy it?",
-      "What are you learning today? Why is it important?",
-      "Explain your job to a 10-year-old.",
-      "What's your plan for tomorrow?",
-      "Describe your favorite food and why you like it.",
-      "Tell me about your city. What's special about it?",
-      "What's a problem you solved recently?",
-      "What do you want to achieve this year?",
-    ];
-    const taskEl = document.getElementById('speak-task');
-    const setTopic = () => {
-      const t = topics[Math.floor(Math.random() * topics.length)];
-      taskEl.textContent = t;
-    };
-    setTopic();
-    document.getElementById('speak-new-task').addEventListener('click', setTopic);
-
-    // 朗读
-    document.getElementById('speak-listen').addEventListener('click', () => {
-      const text = document.getElementById('speak-text').value.trim();
-      if (!text) { this.toast('请先写点什么'); return; }
-      Voice.speakSentence(text);
-    });
-
-    // 语音输入
-    document.getElementById('speak-record').addEventListener('click', async () => {
-      const res = document.getElementById('speak-result');
-      if (!Voice.checkRecognition()) {
-        res.innerHTML = '<p style="color:var(--red);">需要 Chrome 浏览器</p>';
-        return;
+  // === 进度存取 ===
+  _loadProgress() {
+    try {
+      const raw = localStorage.getItem('elab_progress');
+      if (raw) {
+        const data = JSON.parse(raw);
+        this._current = data.current || { week: 1, day: 1 };
+        this._completed = data.completed || {};
       }
-      res.innerHTML = '<p style="color:var(--text-muted);">正在听...</p>';
-      try {
-        const spoken = await Voice.startRecognition({ lang: 'en-US' });
-        document.getElementById('speak-text').value = spoken;
-        res.innerHTML = `<p style="color:var(--green);">已识别: "${spoken}"</p>`;
-      } catch (err) {
-        res.innerHTML = `<p style="color:var(--red);">${err.message}</p>`;
-      }
-    });
-
-    // 保存
-    document.getElementById('speak-save').addEventListener('click', () => {
-      const text = document.getElementById('speak-text').value.trim();
-      if (!text) { this.toast('请先写点什么'); return; }
-      const checks = {
-        grammar: document.getElementById('sc-grammar').checked,
-        tense: document.getElementById('sc-tense').checked,
-        word: document.getElementById('sc-word').checked,
-        natural: document.getElementById('sc-natural').checked,
-      };
-      const journals = this._getJournals();
-      journals.unshift({
-        date: new Date().toISOString(),
-        type: 'speaking',
-        content: text,
-        topic: taskEl.textContent,
-        checks,
-      });
-      localStorage.setItem('elab_journals', JSON.stringify(journals));
-      this.toast('✅ 已保存到航海日志');
-      document.getElementById('speak-text').value = '';
-      setTopic();
-      document.querySelectorAll('#page-speak input[type=checkbox]').forEach(cb => cb.checked = false);
-    });
+    } catch(e) {}
   },
 
-  // ================================================================
-  // 每日打卡
-  // ================================================================
-  _getJournals() {
-    try { return JSON.parse(localStorage.getItem('elab_journals') || '[]'); } catch { return []; }
+  _saveProgress() {
+    localStorage.setItem('elab_progress', JSON.stringify({
+      current: this._current,
+      completed: this._completed,
+    }));
   },
 
-  renderCheckin() {
-    const c = document.getElementById('checkin-container');
-    const progress = Storage.getStudyProgress();
-    const today = new Date().toISOString().split('T')[0];
-    const checked = Storage.getCheckins().includes(today);
-
-    // 当前周数据
-    const weekData = STUDY_PLAN.find(w => w.week === progress.currentWeek) || STUDY_PLAN[0];
-    const dayData = weekData.days.find(d => d.day === progress.currentDay) || weekData.days[0];
-    const totalDays = STUDY_PLAN.reduce((s, w) => s + w.days.length, 0);
-    const completedDays = progress.completedDays.length;
-    const completedToday = progress.completedDays.includes(today);
-
-    // 当前周的第几天（用于导航）
-    const currentDayIdx = progress.currentDay - 1;
-
-    // 统计各层词汇
-    const coreTotal = this.vocabulary.filter(v => v.tier === 'core').length;
-    const highTotal = this.vocabulary.filter(v => v.tier === 'high').length;
-    const bizTotal = this.vocabulary.filter(v => v.tier === 'biz').length;
-    const studiedTotal = this.vocabulary.filter(v => v.totalReviews > 0).length;
-
-    const dayLabels = ['第1天', '第2天', '第3天', '第4天', '第5天', '第6天', '第7天'];
-
-    c.innerHTML = `
-      <div class="page-header">
-        <h2>📅 每日学习计划</h2>
-        <p>句型优先 + 单词填入 · 第 ${progress.currentWeek}/24 周 · 累计完成 ${completedDays}/${totalDays} 天</p>
-      </div>
-
-      <!-- 进度条 -->
-      <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; margin-bottom:16px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-          <span style="font-size:0.85rem; color:var(--text-secondary);">学习进度</span>
-          <span style="font-size:0.85rem; font-weight:700; color:var(--accent);">${Math.round(completedDays/totalDays*100)}%</span>
-        </div>
-        <div style="background:var(--border); border-radius:4px; height:6px; overflow:hidden;">
-          <div style="background:var(--accent); height:100%; width:${Math.round(completedDays/totalDays*100)}%; border-radius:4px; transition:width 0.3s;"></div>
-        </div>
-        <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:0.7rem; color:var(--text-muted);">
-          <span>已学 ${studiedTotal} 词 (核心${coreTotal}/高频${highTotal}/行业${bizTotal})</span>
-          <span>连续 ${this.stats.streakDays} 天</span>
-        </div>
-      </div>
-
-      <div style="display:flex; gap:16px; flex-wrap:wrap;">
-        <!-- 左侧：周导航 + 天导航 -->
-        <div style="flex:0 0 240px; display:flex; flex-direction:column; gap:12px;">
-          <!-- 周选择 -->
-          <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:12px;">
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">选择周</div>
-            <div style="display:flex; gap:4px; flex-wrap:wrap;">
-              ${STUDY_PLAN.map(w => `
-                <button class="week-nav-btn" data-week="${w.week}"
-                  style="width:36px; height:30px; border-radius:6px; border:1px solid ${w.week===progress.currentWeek?'var(--accent)':'var(--border)'};
-                  background:${w.week===progress.currentWeek?'var(--accent-dim)':'var(--bg-card)'};
-                  color:${w.week===progress.currentWeek?'var(--accent)':'var(--text-secondary)'};
-                  font-size:0.75rem; cursor:pointer; text-align:center;"
-                  title="${w.theme}">${w.week}</button>
-              `).join('')}
-            </div>
-          </div>
-          <!-- 天选择 -->
-          <div style="background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:12px;">
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">本周</div>
-            <div style="display:flex; flex-direction:column; gap:4px;">
-              ${weekData.days.map((d, i) => `
-                <button class="day-nav-btn" data-day="${d.day}"
-                  style="width:100%; padding:8px 10px; border-radius:6px; border:1px solid ${d.day===progress.currentDay?'var(--accent)':'var(--border)'};
-                  background:${d.day===progress.currentDay?'var(--accent-dim)':'var(--bg-card)'};
-                  color:${d.day===progress.currentDay?'var(--accent)':'var(--text)'};
-                  font-size:0.85rem; cursor:pointer; text-align:left;"
-                  title="${d.title}">
-                  ${dayLabels[i]}: ${d.title.length > 10 ? d.title.substring(0,10)+'...' : d.title}
-                </button>
-              `).join('')}
-            </div>
-          </div>
-        </div>
-
-        <!-- 右侧：今日学习内容 -->
-        <div style="flex:1; min-width:320px; display:flex; flex-direction:column; gap:16px;">
-          <!-- 今日标题 -->
-          <div style="background:var(--bg-card); border:1px solid var(--accent); border-radius:var(--radius); padding:20px;">
-            <div style="font-size:1.1rem; font-weight:700; color:var(--accent); margin-bottom:4px;">
-              第 ${progress.currentWeek} 周 · ${dayLabels[currentDayIdx]}
-            </div>
-            <div style="font-size:1.3rem; font-weight:700;">${dayData.title}</div>
-            <div style="font-size:0.85rem; color:var(--text-secondary); margin-top:4px;">${weekData.theme}</div>
-          </div>
-
-          <!-- 核心句型 + 例句 -->
-          <div class="listen-section" style="padding:16px;">
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">🔤 今日句型</div>
-            ${dayData.patterns.map(p => {
-              const examples = this._genExamples(p.en);
-              return `
-                <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border);">
-                  <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">
-                    <code style="font-size:1.1rem; color:var(--accent); font-weight:600;">${this._esc(p.en)}</code>
-                    ${p.cn ? `<span style="color:var(--text-secondary); font-size:0.85rem;">${this._esc(p.cn)}</span>` : ''}
-                    <button class="play-pattern-btn" data-text="${this._esc(p.en)}" style="margin-left:auto; width:28px;height:28px;border-radius:50%;border:1px solid var(--border);background:var(--bg);color:var(--text-muted);cursor:pointer;font-size:0.7rem;flex-shrink:0;">▶</button>
-                  </div>
-                  <div style="display:flex; flex-wrap:wrap; gap:4px;">
-                    ${examples.map((ex, idx) => `
-                      <span class="example-chip" data-text="${this._esc(ex)}"
-                        style="display:inline-flex;align-items:center;gap:3px;padding:3px 8px;background:var(--bg);border:1px solid var(--border);border-radius:12px;font-size:0.8rem;color:var(--text-secondary);cursor:pointer;transition:all 0.15s;">
-                        <span style="font-family:var(--font-en);">${idx+1}. ${this._esc(ex)}</span>
-                        <span style="font-size:0.6rem;">🔊</span>
-                      </span>
-                    `).join('')}
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-
-          <!-- 今日单词 -->
-          <div class="listen-section" style="padding:16px;">
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:1px;">📝 今日单词 (${dayData.words.length}个)</div>
-            <div style="display:flex; flex-wrap:wrap; gap:6px;">
-              ${dayData.words.map(w => `
-                <span class="plan-word-chip" data-word="${this._esc(w.en)}"
-                  style="display:inline-flex; align-items:center; gap:4px; padding:6px 12px; background:var(--bg); border:1px solid var(--border); border-radius:20px; cursor:pointer; font-size:0.85rem; transition:all 0.15s;"
-                  onmouseover="this.style.borderColor='var(--accent)';this.style.background='var(--accent-dim)';"
-                  onmouseout="this.style.borderColor='var(--border)';this.style.background='var(--bg)';">
-                  <span style="font-weight:600;">${this._esc(w.en)}</span>
-                  <span style="color:var(--text-muted); font-size:0.75rem;">${this._esc(w.cn)}</span>
-                  <span style="font-size:0.7rem;">🔊</span>
-                </span>
-              `).join('')}
-            </div>
-          </div>
-
-          <!-- 三个任务模块（可交互） -->
-          ${this._renderTaskCards(progress.currentWeek, progress.currentDay, dayData.tasks)}
-          </div>
-
-          <!-- 打卡按钮 -->
-          <div style="text-align:center; padding:16px 0;">
-            ${completedToday ? `
-              <div style="display:inline-block; padding:12px 32px; background:var(--green-dim); border:1px solid var(--green); border-radius:var(--radius); color:var(--green); font-size:1rem; font-weight:700;">
-                ✅ 今日已完成 · 连续 ${this.stats.streakDays} 天
-              </div>
-            ` : `
-              <button class="btn accent" id="do-checkin" style="font-size:1.1rem; padding:14px 48px;">
-                🔥 完成今日学习
-              </button>
-            `}
-          </div>
-        </div>
-      </div>
-    `;
-
-    // 绑定周导航
-    c.querySelectorAll('.week-nav-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const w = parseInt(btn.dataset.week);
-        if (w !== progress.currentWeek) {
-          progress.currentWeek = w;
-          progress.currentDay = 1;
-          Storage.saveStudyProgress(progress);
-          this.renderCheckin();
-        }
-      });
-    });
-
-    // 绑定天导航
-    c.querySelectorAll('.day-nav-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const d = parseInt(btn.dataset.day);
-        if (d !== progress.currentDay) {
-          progress.currentDay = d;
-          Storage.saveStudyProgress(progress);
-          this.renderCheckin();
-        }
-      });
-    });
-
-    // 绑定单词发音
-    c.querySelectorAll('.plan-word-chip').forEach(chip => {
-      chip.addEventListener('click', () => { Voice.speak(chip.dataset.word); });
-    });
-
-    // 绑定例句发音
-    c.querySelectorAll('.example-chip').forEach(chip => {
-      chip.addEventListener('click', (e) => {
-        e.stopPropagation();
-        Voice.speak(chip.dataset.text);
-      });
-      chip.addEventListener('mouseover', function() { this.style.borderColor='var(--accent)'; this.style.color='var(--text)'; });
-      chip.addEventListener('mouseout', function() { this.style.borderColor='var(--border)'; this.style.color='var(--text-secondary)'; });
-    });
-
-    // 绑定句型朗读按钮
-    c.querySelectorAll('.play-pattern-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        Voice.speak(btn.dataset.text);
-      });
-      btn.addEventListener('mouseover', function() { this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'; });
-      btn.addEventListener('mouseout', function() { this.style.color='var(--text-muted)'; this.style.borderColor='var(--border)'; });
-    });
-
-    // 绑定任务勾选
-    c.querySelectorAll('.task-toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const taskKey = btn.dataset.task;
-        Storage.toggleTask(progress.currentWeek, progress.currentDay, taskKey);
-        this.renderCheckin();
-      });
-    });
-
-    // 打卡按钮
-    const checkinBtn = document.getElementById('do-checkin');
-    if (checkinBtn) {
-      checkinBtn.addEventListener('click', () => {
-        const newProgress = Storage.markDayComplete(progress.currentWeek, progress.currentDay);
-        this.stats = Storage.getStats();
-        this.updateNavBadges();
-        this.renderCheckin();
-        this.toast(`✅ 第 ${progress.currentWeek} 周第 ${progress.currentDay} 天完成！`);
-        // 自动推进到第二天
-        if (newProgress.currentWeek !== progress.currentWeek || newProgress.currentDay !== progress.currentDay) {
-          this.toast(`🚀 已自动进入第 ${newProgress.currentWeek} 周第 ${newProgress.currentDay} 天`);
-        }
-      });
-    }
+  _isDone(week, day) {
+    return !!this._completed[`${week}-${day}`];
   },
 
-  // 根据句型模板自动生成 5 个例句
+  _markDone(week, day) {
+    this._completed[`${week}-${day}`] = true;
+    this._saveProgress();
+  },
+
+  // === 获取数据 ===
+  _getDayData(week, day) {
+    const weekData = STUDY_PLAN.find(w => w.week === week);
+    if (!weekData) return null;
+    return weekData.days.find(d => d.day === day) || null;
+  },
+
+  _getWeekData(week) {
+    return STUDY_PLAN.find(w => w.week === week) || null;
+  },
+
+  // === 生成例句 ===
   _genExamples(patternEn) {
     const clean = patternEn.replace(/\.\.\./g, '').trim();
-    // 提取句型主语前缀
     const FILL = {
-      'I am': ['I am a student.', 'I am from Beijing.', 'I am ready.', 'I am happy today.', 'I am here.'],
-      'My name is': ['My name is John.', 'My name is Li Ming.', 'My name is Anna.', 'My name is Wang Fang.', 'My name is David.'],
-      'I am from': ['I am from China.', 'I am from Shanghai.', 'I am from London.', 'I am from Tokyo.', 'I am from New York.'],
-      'This is': ['This is my book.', 'This is John.', 'This is a good idea.', 'This is my phone.', 'This is my friend.'],
-      'He is': ['He is tall.', 'He is a teacher.', 'He is my brother.', 'He is very kind.', 'He is from Canada.'],
-      'She is': ['She is beautiful.', 'She is a doctor.', 'She is my sister.', 'She is very smart.', 'She is from England.'],
-      'He/She is': ['He is tall.', 'She is a doctor.', 'He is my brother.', 'She is very kind.', 'He is from Canada.'],
-      'It is': ['It is a book.', 'It is on the table.', 'It is very good.', 'It is my pen.', 'It is raining today.'],
-      'What is': ['What is this?', 'What is your name?', 'What is that?', 'What is the time?', 'What is in the bag?'],
-      'What is this': ['What is this? — It is a book.', 'What is this? — It is my phone.', 'What is this? — It is a pen.', 'What is this? — It is a gift.', 'What is this? — It is my key.'],
-      'Is this': ['Is this your book?', 'Is this the right way?', 'Is this your pen?', 'Is this a good idea?', 'Is this your phone?'],
-      'I want': ['I want some water.', 'I want to eat.', 'I want a new book.', 'I want to go home.', 'I want to learn English.'],
-      'I would like': ['I would like some tea.', 'I would like to order now.', 'I would like a cup of coffee.', 'I would like to ask a question.', 'I would like some help.'],
-      'I like': ['I like music.', 'I like reading books.', 'I like this movie.', 'I like sunny days.', 'I like learning English.'],
-      'I don\'t like': ['I don\'t like rain.', 'I don\'t like spicy food.', 'I don\'t like getting up early.', 'I don\'t like loud music.', 'I don\'t like cold weather.'],
-      'He/She has': ['He has a new car.', 'She has beautiful eyes.', 'He has a big family.', 'She has a great job.', 'He has two brothers.'],
-      'How old': ['How old are you?', 'How old is your sister?', 'How old is this building?', 'How old is your dog?', 'How old is that book?'],
-      'How old are you': ['How old are you? — I am 25.', 'How old are you? — I am 30 years old.', 'How old are you? — I am a student.', 'How old are you? — I am 18.', 'How old are you? — I am 42.'],
-      'I am ... years old': ['I am 25 years old.', 'I am 18 years old.', 'I am 30 years old.', 'I am 42 years old.', 'I am 10 years old.'],
-      'When is': ['When is your birthday?', 'When is the party?', 'When is the meeting?', 'When is the next bus?', 'When is dinner ready?'],
-      'I think': ['I think he is right.', 'I think she is nice.', 'I think this is good.', 'I think it will rain.', 'I think we should go.'],
-      'What is he/she like': ['What is he like?', 'What is she like?', 'What is your mother like?', 'What is your boss like?', 'What is the new teacher like?'],
-      'There is': ['There is a book on the table.', 'There is a park near my house.', 'There is a problem.', 'There is a cat in the garden.', 'There is a supermarket nearby.'],
-      'There are': ['There are many people here.', 'There are three apples.', 'There are some books on the desk.', 'There are two parks in my town.', 'There are many reasons.'],
-      'I have': ['I have a dog.', 'I have two brothers.', 'I have a question.', 'I have some ideas.', 'I have a meeting today.'],
-      'Do you': ['Do you like music?', 'Do you have a pen?', 'Do you want some tea?', 'Do you speak English?', 'Do you know the answer?'],
-      'Can I': ['Can I help you?', 'Can I sit here?', 'Can I ask a question?', 'Can I borrow your pen?', 'Can I have some water?'],
-      'Can you': ['Can you help me?', 'Can you speak English?', 'Can you repeat that?', 'Can you show me the way?', 'Can you wait a moment?'],
-      'Where is': ['Where is the station?', 'Where is the bathroom?', 'Where is my phone?', 'Where is the nearest bank?', 'Where is your office?'],
+      'I am': [{en:'I am a student.', cn:'我是一个学生。'},{en:'I am from Beijing.', cn:'我来自北京。'},{en:'I am ready.', cn:'我准备好了。'},{en:'I am happy today.', cn:'我今天很开心。'},{en:'I am here.', cn:'我在这里。'}],
+      'My name is': [{en:'My name is John.', cn:'我叫 John。'},{en:'My name is Li Ming.', cn:'我叫李明。'},{en:'My name is Anna.', cn:'我叫 Anna。'},{en:'My name is Wang Fang.', cn:'我叫王芳。'},{en:'My name is David.', cn:'我叫 David。'}],
+      'I am from': [{en:'I am from China.', cn:'我来自中国。'},{en:'I am from Shanghai.', cn:'我来自上海。'},{en:'I am from London.', cn:'我来自伦敦。'},{en:'I am from Tokyo.', cn:'我来自东京。'},{en:'I am from New York.', cn:'我来自纽约。'}],
+      'This is': [{en:'This is my book.', cn:'这是我的书。'},{en:'This is John.', cn:'这是 John。'},{en:'This is a good idea.', cn:'这是个好主意。'},{en:'This is my phone.', cn:'这是我的手机。'},{en:'This is my friend.', cn:'这是我的朋友。'}],
+      'He is': [{en:'He is tall.', cn:'他很高。'},{en:'He is a teacher.', cn:'他是一名老师。'},{en:'He is my brother.', cn:'他是我的兄弟。'},{en:'He is very kind.', cn:'他很善良。'},{en:'He is from Canada.', cn:'他来自加拿大。'}],
+      'She is': [{en:'She is beautiful.', cn:'她很漂亮。'},{en:'She is a doctor.', cn:'她是一名医生。'},{en:'She is my sister.', cn:'她是我的姐妹。'},{en:'She is very smart.', cn:'她很聪明。'},{en:'She is from England.', cn:'她来自英国。'}],
+      'He/She is': [{en:'He is tall.', cn:'他很高。'},{en:'She is a doctor.', cn:'她是一名医生。'},{en:'He is my brother.', cn:'他是我的兄弟。'},{en:'She is very kind.', cn:'她很善良。'},{en:'He is from Canada.', cn:'他来自加拿大。'}],
+      'It is': [{en:'It is a book.', cn:'这是一本书。'},{en:'It is on the table.', cn:'它在桌子上。'},{en:'It is very good.', cn:'非常好。'},{en:'It is my pen.', cn:'这是我的笔。'},{en:'It is raining today.', cn:'今天在下雨。'}],
+      'What is': [{en:'What is this?', cn:'这是什么？'},{en:'What is your name?', cn:'你叫什么名字？'},{en:'What is that?', cn:'那是什么？'},{en:'What is the time?', cn:'几点了？'},{en:'What is in the bag?', cn:'包里有什么？'}],
+      'What is this': [{en:'What is this? — It is a book.', cn:'这是什么？——这是一本书。'},{en:'What is this? — It is my phone.', cn:'这是什么？——这是我的手机。'},{en:'What is this? — It is a pen.', cn:'这是什么？——这是一支笔。'},{en:'What is this? — It is a gift.', cn:'这是什么？——这是一份礼物。'},{en:'What is this? — It is my key.', cn:'这是什么？——这是我的钥匙。'}],
+      'Is this': [{en:'Is this your book?', cn:'这是你的书吗？'},{en:'Is this the right way?', cn:'这条路对吗？'},{en:'Is this your pen?', cn:'这是你的笔吗？'},{en:'Is this a good idea?', cn:'这是个好主意吗？'},{en:'Is this your phone?', cn:'这是你的手机吗？'}],
+      'I want': [{en:'I want some water.', cn:'我想要一些水。'},{en:'I want to eat.', cn:'我想吃饭。'},{en:'I want a new book.', cn:'我想要一本新书。'},{en:'I want to go home.', cn:'我想回家。'},{en:'I want to learn English.', cn:'我想学英语。'}],
+      'I would like': [{en:'I would like some tea.', cn:'我想要一些茶。'},{en:'I would like to order now.', cn:'我想现在点餐。'},{en:'I would like a cup of coffee.', cn:'我想要一杯咖啡。'},{en:'I would like to ask a question.', cn:'我想问一个问题。'},{en:'I would like some help.', cn:'我需要一些帮助。'}],
+      'I like': [{en:'I like music.', cn:'我喜欢音乐。'},{en:'I like reading books.', cn:'我喜欢读书。'},{en:'I like this movie.', cn:'我喜欢这部电影。'},{en:'I like sunny days.', cn:'我喜欢晴天。'},{en:'I like learning English.', cn:'我喜欢学英语。'}],
+      'I don\'t like': [{en:'I don\'t like rain.', cn:'我不喜欢下雨。'},{en:'I don\'t like spicy food.', cn:'我不喜欢辣的食物。'},{en:'I don\'t like getting up early.', cn:'我不喜欢早起。'},{en:'I don\'t like loud music.', cn:'我不喜欢吵闹的音乐。'},{en:'I don\'t like cold weather.', cn:'我不喜欢冷天。'}],
+      'He/She has': [{en:'He has a new car.', cn:'他有一辆新车。'},{en:'She has beautiful eyes.', cn:'她有一双漂亮的眼睛。'},{en:'He has a big family.', cn:'他有一个大家庭。'},{en:'She has a great job.', cn:'她有一份好工作。'},{en:'He has two brothers.', cn:'他有两个兄弟。'}],
+      'How old': [{en:'How old are you?', cn:'你多大了？'},{en:'How old is your sister?', cn:'你妹妹多大了？'},{en:'How old is this building?', cn:'这栋楼有多少年了？'},{en:'How old is your dog?', cn:'你的狗多大了？'},{en:'How old is that book?', cn:'那本书有多旧了？'}],
+      'How old are you': [{en:'How old are you? — I am 25.', cn:'你多大了？——我 25 岁。'},{en:'How old are you? — I am 30 years old.', cn:'你多大了？——我 30 岁。'},{en:'How old are you? — I am a student.', cn:'你多大了？——我是学生。'},{en:'How old are you? — I am 18.', cn:'你多大了？——我 18 岁。'},{en:'How old are you? — I am 42.', cn:'你多大了？——我 42 岁。'}],
+      'I am ... years old': [{en:'I am 25 years old.', cn:'我 25 岁。'},{en:'I am 18 years old.', cn:'我 18 岁。'},{en:'I am 30 years old.', cn:'我 30 岁。'},{en:'I am 42 years old.', cn:'我 42 岁。'},{en:'I am 10 years old.', cn:'我 10 岁。'}],
+      'When is': [{en:'When is your birthday?', cn:'你生日是什么时候？'},{en:'When is the party?', cn:'派对是什么时候？'},{en:'When is the meeting?', cn:'会议是什么时候？'},{en:'When is the next bus?', cn:'下一班公交什么时候？'},{en:'When is dinner ready?', cn:'晚饭什么时候好？'}],
+      'I think': [{en:'I think he is right.', cn:'我觉得他是对的。'},{en:'I think she is nice.', cn:'我觉得她很好。'},{en:'I think this is good.', cn:'我觉得这个不错。'},{en:'I think it will rain.', cn:'我觉得会下雨。'},{en:'I think we should go.', cn:'我觉得我们该走了。'}],
+      'What is he/she like': [{en:'What is he like?', cn:'他什么样？'},{en:'What is she like?', cn:'她什么样？'},{en:'What is your mother like?', cn:'你妈妈什么样？'},{en:'What is your boss like?', cn:'你老板什么样？'},{en:'What is the new teacher like?', cn:'新老师什么样？'}],
+      'There is': [{en:'There is a book on the table.', cn:'桌子上有一本书。'},{en:'There is a park near my house.', cn:'我家附近有一个公园。'},{en:'There is a problem.', cn:'有个问题。'},{en:'There is a cat in the garden.', cn:'花园里有一只猫。'},{en:'There is a supermarket nearby.', cn:'附近有一家超市。'}],
+      'There are': [{en:'There are many people here.', cn:'这里有很多人。'},{en:'There are three apples.', cn:'有三个苹果。'},{en:'There are some books on the desk.', cn:'桌上有一些书。'},{en:'There are two parks in my town.', cn:'我镇上有两个公园。'},{en:'There are many reasons.', cn:'有很多原因。'}],
+      'I have': [{en:'I have a dog.', cn:'我有一只狗。'},{en:'I have two brothers.', cn:'我有两个兄弟。'},{en:'I have a question.', cn:'我有一个问题。'},{en:'I have some ideas.', cn:'我有一些想法。'},{en:'I have a meeting today.', cn:'我今天有个会。'}],
+      'Do you': [{en:'Do you like music?', cn:'你喜欢音乐吗？'},{en:'Do you have a pen?', cn:'你有笔吗？'},{en:'Do you want some tea?', cn:'你想喝茶吗？'},{en:'Do you speak English?', cn:'你会说英语吗？'},{en:'Do you know the answer?', cn:'你知道答案吗？'}],
+      'Can I': [{en:'Can I help you?', cn:'需要帮忙吗？'},{en:'Can I sit here?', cn:'我可以坐这里吗？'},{en:'Can I ask a question?', cn:'我可以问一个问题吗？'},{en:'Can I borrow your pen?', cn:'我可以借你的笔吗？'},{en:'Can I have some water?', cn:'我可以要些水吗？'}],
+      'Can you': [{en:'Can you help me?', cn:'你能帮我吗？'},{en:'Can you speak English?', cn:'你会说英语吗？'},{en:'Can you repeat that?', cn:'你能重复一遍吗？'},{en:'Can you show me the way?', cn:'你能给我指路吗？'},{en:'Can you wait a moment?', cn:'你能等一会儿吗？'}],
+      'Where is': [{en:'Where is the station?', cn:'车站在哪里？'},{en:'Where is the bathroom?', cn:'洗手间在哪里？'},{en:'Where is my phone?', cn:'我的手机在哪里？'},{en:'Where is the nearest bank?', cn:'最近的银行在哪里？'},{en:'Where is your office?', cn:'你的办公室在哪里？'}],
     };
-
-    // 精确匹配
     if (FILL[clean]) return FILL[clean];
-
-    // 模糊匹配：找最接近的模板
     const keys = Object.keys(FILL);
-    for (const k of keys) {
-      if (clean.startsWith(k) || k.startsWith(clean)) return FILL[k];
-    }
-
-    // 兜底：基于句型中的关键词生成
-    const words = clean.split(/\s+/).filter(w => w.length > 2);
+    for (const k of keys) { if (clean.startsWith(k) || k.startsWith(clean)) return FILL[k]; }
     return [
-      `${clean} — let's practice.`,
-      `Can you say "${clean}"?`,
-      `Try using "${clean}" in a sentence.`,
-      `${clean} ... now you try.`,
-      `Repeat after me: "${clean}".`,
+      {en: `${clean} — let's practice.`, cn: `${clean}——来练习一下。`},
+      {en: `Can you say "${clean}"?`, cn: `你能说"${clean}"吗？`},
+      {en: `Try using "${clean}" in a sentence.`, cn: `试着用"${clean}"造句。`},
+      {en: `${clean} ... now you try.`, cn: `${clean}……你来试试。`},
+      {en: `Repeat after me: "${clean}".`, cn: `跟我读："${clean}"。`},
     ];
-  },
-
-  // 渲染可交互的任务卡片
-  _renderTaskCards(week, day, tasks) {
-    const taskDefs = [
-      { key: 'morning', icon: '🌅', title: '上午 · 句型精学', text: tasks.morning },
-      { key: 'noon', icon: '☀️', title: '中午 · AI故事输入', text: tasks.noon },
-      { key: 'afternoon', icon: '🌆', title: '下午 · 场景实战', text: tasks.afternoon },
-    ];
-    return `
-      <div style="display:flex; gap:12px; flex-wrap:wrap;">
-        ${taskDefs.map(t => {
-          const done = Storage.isTaskDone(week, day, t.key);
-          return `
-            <div style="flex:1; min-width:200px; background:var(--bg-card); border:1px solid ${done?'var(--green)':'var(--border)'}; border-radius:var(--radius); padding:16px; transition:all 0.2s;">
-              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                <div style="font-size:0.9rem; font-weight:700;">${t.icon} ${t.title}</div>
-                <button class="task-toggle-btn" data-task="${t.key}"
-                  style="width:28px;height:28px;border-radius:50%;border:2px solid ${done?'var(--green)':'var(--border)'};background:${done?'var(--green-dim)':'var(--bg)'};color:${done?'var(--green)':'var(--text-muted)'};cursor:pointer;font-size:0.8rem;display:flex;align-items:center;justify-content:center;transition:all 0.15s;flex-shrink:0;"
-                  title="${done?'取消完成':'标记完成'}">${done?'✓':''}</button>
-              </div>
-              <div style="font-size:0.85rem; color:${done?'var(--text-secondary)':'var(--text-secondary)'}; line-height:1.6; ${done?'opacity:0.6;':''}">${this._esc(t.text)}</div>
-            </div>
-          `;
-        }).join('')}
-      </div>
-    `;
   },
 
   _esc(s) {
     if (!s) return '';
-    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   },
 
-  // ================================================================
-  // 周复盘
-  // ================================================================
-  renderReview() {
-    const c = document.getElementById('review-container');
-    const today = new Date();
-    const journals = this._getJournals();
+  // === 导航 ===
+  _goTo(week, day) {
+    const weekData = this._getWeekData(week);
+    if (!weekData) return;
+    if (day < 1) day = 1;
+    if (day > weekData.days.length) day = weekData.days.length;
+    this._current = { week, day };
+    this._saveProgress();
+    this._render();
+    document.getElementById('main-content').scrollTop = 0;
+  },
 
-    // 本周统计
-    const dayOfWeek = today.getDay();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-    const weekStart = monday.toISOString().split('T')[0];
-    const weekJournals = journals.filter(j => j.date >= weekStart);
+  _goPrev() {
+    const { week, day } = this._current;
+    if (day > 1) {
+      this._goTo(week, day - 1);
+    } else if (week > 1) {
+      const prevWeek = this._getWeekData(week - 1);
+      if (prevWeek) this._goTo(week - 1, prevWeek.days.length);
+    }
+  },
 
-    // 本周每天学习量
-    const weekStats = [];
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const ds = d.toISOString().split('T')[0];
-      const td = this.stats.dailyHistory[ds] || { newWords: 0, reviews: 0 };
-      weekStats.push({ date: ds, newWords: td.newWords, reviews: td.reviews });
+  _goNext() {
+    const { week, day } = this._current;
+    const weekData = this._getWeekData(week);
+    const maxDay = weekData ? weekData.days.length : 7;
+    if (day < maxDay) {
+      this._goTo(week, day + 1);
+    } else if (week < STUDY_PLAN.length) {
+      this._goTo(week + 1, 1);
+    }
+  },
+
+  // === Toast ===
+  _toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(this._toastTimer);
+    this._toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+  },
+
+  // === 事件绑定 ===
+  _bindUI() {
+    document.getElementById('btn-prev').addEventListener('click', () => this._goPrev());
+    document.getElementById('btn-next').addEventListener('click', () => this._goNext());
+    document.getElementById('btn-done').addEventListener('click', () => this._handleDone());
+
+    document.getElementById('btn-week-picker').addEventListener('click', () => this._openWeekPicker());
+    document.getElementById('btn-week-close').addEventListener('click', () => this._closeWeekPicker());
+    document.getElementById('week-overlay').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) this._closeWeekPicker();
+    });
+  },
+
+  // === 完成今日 ===
+  _handleDone() {
+    const { week, day } = this._current;
+    this._markDone(week, day);
+    this._render();
+    this._toast('✅ 今日完成！继续加油 🔥');
+    setTimeout(() => this._goNext(), 600);
+  },
+
+  // === 周选择器 ===
+  _openWeekPicker() {
+    const list = document.getElementById('week-list');
+    list.innerHTML = STUDY_PLAN.map(w => {
+      const total = w.days.length;
+      const done = w.days.filter(d => this._isDone(w.week, d.day)).length;
+      const isCurrent = w.week === this._current.week;
+      return `
+        <div class="week-select-item ${isCurrent ? 'current' : ''}" data-week="${w.week}">
+          <span class="week-select-num">第${w.week}周</span>
+          <span class="week-select-theme">${w.theme}</span>
+          <span class="week-select-progress">${done}/${total}</span>
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('.week-select-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const w = parseInt(item.dataset.week);
+        this._goTo(w, 1);
+        this._closeWeekPicker();
+      });
+    });
+
+    document.getElementById('week-overlay').classList.add('open');
+  },
+
+  _closeWeekPicker() {
+    document.getElementById('week-overlay').classList.remove('open');
+  },
+
+  // === 渲染 ===
+  _render() {
+    const { week, day } = this._current;
+    const weekData = this._getWeekData(week);
+    const dayData = this._getDayData(week, day);
+
+    document.getElementById('header-week').textContent = `第${week}周`;
+    document.getElementById('header-theme').textContent = weekData ? weekData.theme : '';
+
+    // 7天圆点
+    const daysEl = document.getElementById('header-days');
+    if (weekData) {
+      daysEl.innerHTML = weekData.days.map(d => {
+        const isActive = d.day === day;
+        const isDone = this._isDone(week, d.day);
+        let cls = 'day-dot';
+        if (isActive) cls += ' active';
+        else if (isDone) cls += ' done';
+        return `<button class="${cls}" data-day="${d.day}" title="${d.title}">${isDone ? '✓' : d.day}</button>`;
+      }).join('');
+
+      daysEl.querySelectorAll('.day-dot').forEach(dot => {
+        dot.addEventListener('click', () => this._goTo(week, parseInt(dot.dataset.day)));
+      });
     }
 
-    const weekNewWords = weekStats.reduce((s, d) => s + d.newWords, 0);
-    const weekReviews = weekStats.reduce((s, d) => s + d.reviews, 0);
-    const totalVocab = this.vocabulary.length;
-    const studiedVocab = this.vocabulary.filter(v => v.totalReviews > 0).length;
-    const coreKnown = this.vocabulary.filter(v => v.tier === 'core' && v.totalReviews > 0).length;
-    const coreTotal = this.vocabulary.filter(v => v.tier === 'core').length;
-    const checkins = Storage.getCheckins();
-    const weekCheckins = weekStats.filter(d => checkins.includes(d.date)).length;
+    // 主内容
+    const main = document.getElementById('main-content');
+    if (!dayData) {
+      main.innerHTML = `<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">该天没有数据</div></div>`;
+      return;
+    }
 
-    const weekLabels = ['一', '二', '三', '四', '五', '六', '日'];
+    const isDone = this._isDone(week, day);
+    const patterns = dayData.patterns || [];
+    const words = dayData.words || [];
 
-    c.innerHTML = `
-      <div class="page-header">
-        <h2>📊 周复盘</h2>
-        <p>${weekStart} 起 · 本周总结</p>
+    const patternsHTML = patterns.length > 0 ? `
+      <div class="section-title">📝 今日句型</div>
+      ${patterns.map((p, pi) => {
+        const examples = this._genExamples(p.en);
+        return `
+          <div class="pattern-card" data-pi="${pi}">
+            <div class="pattern-header">
+              <div class="pattern-body">
+                <div class="pattern-en">${this._esc(p.en)}</div>
+                ${p.cn ? `<div class="pattern-cn">${this._esc(p.cn)}</div>` : ''}
+              </div>
+              <button class="pattern-play" data-text="${this._esc(p.en)}">🔊</button>
+              <span class="pattern-arrow">▼</span>
+            </div>
+            <div class="pattern-examples">
+              ${examples.map((ex, ei) => `
+                <div class="example-item">
+                  <span class="example-num">${ei + 1}</span>
+                  <div class="example-content">
+                    <div class="example-en">${this._esc(ex.en)}</div>
+                    ${ex.cn ? `<div class="example-cn">${this._esc(ex.cn)}</div>` : ''}
+                  </div>
+                  <button class="example-play" data-text="${this._esc(ex.en)}">🔊</button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      }).join('')}
+    ` : '';
+
+    const wordsHTML = words.length > 0 ? `
+      <div class="section-title">📋 今日单词 (${words.length}个)</div>
+      <div class="word-chips">
+        ${words.map(w => `
+          <span class="word-chip" data-word="${this._esc(w.en)}">
+            <span class="word-en">${this._esc(w.en)}</span>
+            <span class="word-cn">${this._esc(w.cn)}</span>
+            <span class="word-chip-icon">🔊</span>
+          </span>
+        `).join('')}
       </div>
+    ` : '';
 
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-value" style="color:var(--accent);">${weekCheckins}/7</div>
-          <div class="stat-label">本周打卡</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" style="color:var(--blue);">${weekNewWords}</div>
-          <div class="stat-label">本周新词</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" style="color:var(--green);">${weekReviews}</div>
-          <div class="stat-label">本周复习</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value">${this.stats.streakDays}</div>
-          <div class="stat-label">连续打卡</div>
-        </div>
+    main.innerHTML = `
+      <div style="margin-bottom:8px;">
+        <span style="font-size:1.1rem; font-weight:700; color:var(--accent);">第${day}天</span>
+        <span style="color:var(--text-secondary); margin-left:8px;">${dayData.title || ''}</span>
+        ${isDone ? '<span style="margin-left:8px; font-size:0.8rem; color:var(--green);">✓ 已完成</span>' : ''}
       </div>
-
-      <!-- 本周学习柱状图 -->
-      <div class="listen-section" style="margin-bottom:20px;">
-        <h4 style="margin-bottom:12px;">📊 本周每日学习量</h4>
-        <div style="display:flex; gap:12px; align-items:flex-end; height:120px;">
-          ${weekStats.map((d, i) => {
-            const maxH = 100;
-            const total = d.newWords + d.reviews;
-            const h = total > 0 ? Math.max(8, total / Math.max(...weekStats.map(d => d.newWords + d.reviews), 1) * maxH) : 0;
-            const isToday = d.date === today.toISOString().split('T')[0];
-            return `
-              <div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:4px;">
-                <span style="font-size:0.7rem; color:var(--text-muted);">${total}</span>
-                <div style="width:100%; max-width:40px; height:${h}px; background:${isToday ? 'var(--accent)' : 'var(--blue)'}; border-radius:4px 4px 0 0; ${total === 0 ? 'opacity:0.3;' : ''}"></div>
-                <span style="font-size:0.7rem; color:${isToday ? 'var(--accent)' : 'var(--text-muted)'};">${weekLabels[i]}</span>
-              </div>`;
-          }).join('')}
-        </div>
-      </div>
-
-      <!-- 词汇进度 -->
-      <div class="listen-section" style="margin-bottom:20px;">
-        <h4 style="margin-bottom:12px;">📇 词汇总进度</h4>
-        <div class="stat-bar-group">
-          <div class="stat-bar-label"><span>核心词</span><span>${coreKnown}/${coreTotal}</span></div>
-          <div class="stat-bar"><div class="stat-bar-fill" style="width:${coreTotal > 0 ? coreKnown/coreTotal*100 : 0}%; background:var(--accent);"></div></div>
-        </div>
-        <div class="stat-bar-group">
-          <div class="stat-bar-label"><span>全部词汇</span><span>${studiedVocab}/${totalVocab}</span></div>
-          <div class="stat-bar"><div class="stat-bar-fill" style="width:${totalVocab > 0 ? studiedVocab/totalVocab*100 : 0}%; background:var(--blue);"></div></div>
-        </div>
-      </div>
-
-      <!-- 最近日志 -->
-      <div class="listen-section" style="margin-bottom:20px;">
-        <h4 style="margin-bottom:12px;">📝 本周记录</h4>
-        ${weekJournals.length === 0 ? '<p style="color:var(--text-muted);">本周还没有记录</p>' : weekJournals.slice(0, 10).map(j => {
-          const d = j.date.split('T')[0];
-          return `
-            <div style="padding:8px 0; border-bottom:1px solid var(--border);">
-              <span style="color:var(--text-muted); font-size:0.75rem;">${d}</span>
-              <span style="font-size:0.7rem; color:var(--blue); margin-left:8px;">${j.type === 'speaking' ? '🎤输出' : '📝日志'}</span>
-              <p style="margin-top:2px; font-size:0.85rem;">${j.type === 'speaking' ? j.topic || '' : j.content}</p>
-            </div>`;
-        }).join('')}
-      </div>
-
-      <!-- 导出 -->
-      <div style="margin-top:20px;">
-        <button class="btn small" id="review-export">📥 导出学习数据</button>
-        <button class="btn small danger" id="review-reset" style="margin-left:8px;">🔄 重置进度</button>
-      </div>
+      ${patternsHTML}
+      ${wordsHTML}
     `;
 
-    document.getElementById('review-export').addEventListener('click', () => {
-      const data = {
-        vocabulary: this.vocabulary,
-        settings: this.settings,
-        stats: this.stats,
-        journals: journals,
-        exportDate: new Date().toISOString(),
-      };
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `english-lab-review-${today.toISOString().split('T')[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      this.toast('✅ 数据已导出');
+    // 按钮状态
+    const doneBtn = document.getElementById('btn-done');
+    if (isDone) {
+      doneBtn.textContent = '✅ 已完成';
+      doneBtn.classList.add('done');
+    } else {
+      doneBtn.textContent = '✅ 完成今日';
+      doneBtn.classList.remove('done');
+    }
+
+    this._bindContentEvents();
+  },
+
+  _bindContentEvents() {
+    const main = document.getElementById('main-content');
+
+    main.querySelectorAll('.pattern-header').forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (e.target.closest('.pattern-play')) return;
+        header.closest('.pattern-card').classList.toggle('expanded');
+      });
     });
 
-    document.getElementById('review-reset').addEventListener('click', () => {
-      if (confirm('确定重置所有学习进度？此操作不可恢复！')) {
-        localStorage.clear();
-        location.reload();
-      }
+    main.querySelectorAll('.pattern-play').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        Voice.speak(btn.dataset.text);
+      });
     });
-  },
-  // === 设置绑定 ===
-  bindSettings() {
-    const dailyEl = document.getElementById('setting-daily');
-    if (dailyEl) {
-      dailyEl.value = this.settings.dailyNewWords;
-      dailyEl.addEventListener('change', () => {
-        const v = Math.max(5, Math.min(50, parseInt(dailyEl.value) || 20));
-        this.settings.dailyNewWords = v;
-        this.session.dailyNewLimit = v;
-        Storage.saveSettings(this.settings);
-        dailyEl.value = v;
-        this.toast(`每日新词 ${v} 个`);
+
+    main.querySelectorAll('.example-play').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        Voice.speak(btn.dataset.text);
       });
-    }
+    });
 
-    const speedEl = document.getElementById('setting-speed');
-    if (speedEl) {
-      speedEl.value = this.settings.voiceSpeed;
-      speedEl.addEventListener('change', () => {
-        this.settings.voiceSpeed = parseFloat(speedEl.value);
-        Storage.saveSettings(this.settings);
-      });
-    }
-
-    // TTS 引擎选择
-    const engineEl = document.getElementById('setting-engine');
-    if (engineEl) {
-      engineEl.value = this.settings.ttsEngine || 'edge';
-      engineEl.addEventListener('change', () => {
-        this.settings.ttsEngine = engineEl.value;
-        Storage.saveSettings(this.settings);
-        this._refreshVoiceSelect();
-        this._refreshApiKeySection();
-        this.updateVoiceLabel();
-        this.toast(`引擎已切换`);
-        // 切换引擎时重新预热
-        Voice.init();
-      });
-    }
-
-    // 语音选择
-    const voiceEl = document.getElementById('setting-voice');
-    if (voiceEl) {
-      this._refreshVoiceSelect();
-      voiceEl.addEventListener('change', () => {
-        const voiceKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
-        this.settings[voiceKey] = voiceEl.value;
-        Storage.saveSettings(this.settings);
-        this.updateVoiceLabel();
-        this.toast('语音已切换');
-      });
-    }
-
-    // API Key 输入
-    const googleKeyEl = document.getElementById('setting-google-key');
-    if (googleKeyEl) {
-      googleKeyEl.value = this.settings.googleApiKey || '';
-      googleKeyEl.addEventListener('change', () => {
-        this.settings.googleApiKey = googleKeyEl.value.trim();
-        Storage.saveSettings(this.settings);
-        this.toast('Google Key 已保存');
-      });
-    }
-
-    const openaiKeyEl = document.getElementById('setting-openai-key');
-    if (openaiKeyEl) {
-      openaiKeyEl.value = this.settings.openaiApiKey || '';
-      openaiKeyEl.addEventListener('change', () => {
-        this.settings.openaiApiKey = openaiKeyEl.value.trim();
-        Storage.saveSettings(this.settings);
-        this.toast('OpenAI Key 已保存');
-      });
-    }
-
-    const openaiModelEl = document.getElementById('setting-openai-model');
-    if (openaiModelEl) {
-      openaiModelEl.value = this.settings.openaiModel || 'tts-1';
-      openaiModelEl.addEventListener('change', () => {
-        this.settings.openaiModel = openaiModelEl.value;
-        Storage.saveSettings(this.settings);
-      });
-    }
-
-    this._refreshApiKeySection();
-  },
-
-  // === 移动端设置弹窗 ===
-  _openMobileSettings() {
-    const overlay = document.getElementById('settings-overlay');
-    if (!overlay) return;
-    overlay.classList.add('open');
-    this._syncMobileSettings();
-  },
-
-  _closeMobileSettings() {
-    document.getElementById('settings-overlay')?.classList.remove('open');
-  },
-
-  // 将当前设置同步到弹窗控件（首次打开时绑定事件）
-  _syncMobileSettings() {
-    const dailyEl = document.getElementById('mb-setting-daily');
-    const engineEl = document.getElementById('mb-setting-engine');
-    const speedEl = document.getElementById('mb-setting-speed');
-    const voiceEl = document.getElementById('mb-setting-voice');
-    const voiceNameEl = document.getElementById('mb-voice-name');
-    const apiSection = document.getElementById('mb-api-keys-section');
-    const googleKeyEl = document.getElementById('mb-setting-google-key');
-    const openaiKeyEl = document.getElementById('mb-setting-openai-key');
-    const openaiModelEl = document.getElementById('mb-setting-openai-model');
-
-    // 值同步
-    if (dailyEl) dailyEl.value = this.settings.dailyNewWords;
-    if (engineEl) engineEl.value = this.settings.ttsEngine || 'edge';
-    if (speedEl) speedEl.value = this.settings.voiceSpeed;
-    if (googleKeyEl) googleKeyEl.value = this.settings.googleApiKey || '';
-    if (openaiKeyEl) openaiKeyEl.value = this.settings.openaiApiKey || '';
-    if (openaiModelEl) openaiModelEl.value = this.settings.openaiModel || 'tts-1';
-
-    // 语音列表
-    if (voiceEl) {
-      const voices = Voice.getAvailableVoices();
-      voiceEl.innerHTML = voices.map(v => `<option value="${v.id}">${v.label}</option>`).join('');
-      const voiceKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
-      voiceEl.value = this.settings[voiceKey] || voices[0]?.id || '';
-    }
-    if (voiceNameEl) voiceNameEl.textContent = Voice.getVoiceName();
-
-    // API Key 区域
-    if (apiSection) apiSection.style.display = (this.settings.ttsEngine || 'edge') === 'edge' ? 'none' : 'block';
-
-    // 事件绑定（只绑一次，用 data-bound 标记）
-    if (dailyEl && !dailyEl.dataset.bound) {
-      dailyEl.dataset.bound = '1';
-      dailyEl.addEventListener('change', () => {
-        const v = Math.max(5, Math.min(50, parseInt(dailyEl.value) || 20));
-        this.settings.dailyNewWords = v;
-        this.session.dailyNewLimit = v;
-        Storage.saveSettings(this.settings);
-        const dd = document.getElementById('setting-daily');
-        if (dd) dd.value = v;
-        this.toast(`每日新词 ${v} 个`);
-      });
-    }
-    if (engineEl && !engineEl.dataset.bound) {
-      engineEl.dataset.bound = '1';
-      engineEl.addEventListener('change', () => {
-        this.settings.ttsEngine = engineEl.value;
-        Storage.saveSettings(this.settings);
-        this._refreshVoiceSelect();
-        this._refreshApiKeySection();
-        this.updateVoiceLabel();
-        Voice.init();
-        this._syncMobileSettings();
-        this.toast('引擎已切换');
-      });
-    }
-    if (speedEl && !speedEl.dataset.bound) {
-      speedEl.dataset.bound = '1';
-      speedEl.addEventListener('change', () => {
-        this.settings.voiceSpeed = parseFloat(speedEl.value);
-        Storage.saveSettings(this.settings);
-      });
-    }
-    if (voiceEl && !voiceEl.dataset.bound) {
-      voiceEl.dataset.bound = '1';
-      voiceEl.addEventListener('change', () => {
-        const vKey = `ttsVoice_${this.settings.ttsEngine || 'edge'}`;
-        this.settings[vKey] = voiceEl.value;
-        Storage.saveSettings(this.settings);
-        this.updateVoiceLabel();
-        if (voiceNameEl) voiceNameEl.textContent = Voice.getVoiceName();
-        this.toast('语音已切换');
-      });
-    }
-    if (googleKeyEl && !googleKeyEl.dataset.bound) {
-      googleKeyEl.dataset.bound = '1';
-      googleKeyEl.addEventListener('change', () => {
-        this.settings.googleApiKey = googleKeyEl.value.trim();
-        Storage.saveSettings(this.settings);
-      });
-    }
-    if (openaiKeyEl && !openaiKeyEl.dataset.bound) {
-      openaiKeyEl.dataset.bound = '1';
-      openaiKeyEl.addEventListener('change', () => {
-        this.settings.openaiApiKey = openaiKeyEl.value.trim();
-        Storage.saveSettings(this.settings);
-      });
-    }
-    if (openaiModelEl && !openaiModelEl.dataset.bound) {
-      openaiModelEl.dataset.bound = '1';
-      openaiModelEl.addEventListener('change', () => {
-        this.settings.openaiModel = openaiModelEl.value;
-        Storage.saveSettings(this.settings);
-      });
-    }
-  },
-
-  // === 工具 ===
-  toast(msg) {
-    const old = document.querySelector('.toast');
-    if (old) old.remove();
-    const el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = msg;
-    document.body.appendChild(el);
-    setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity 0.3s'; setTimeout(() => el.remove(), 300); }, 2000);
+    main.querySelectorAll('.word-chip').forEach(chip => {
+      chip.addEventListener('click', () => Voice.speak(chip.dataset.word));
+    });
   },
 };
 

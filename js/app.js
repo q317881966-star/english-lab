@@ -11,6 +11,21 @@ const App = {
     this._loadProgress();
     this._bindUI();
     this._render();
+    // iOS 音频解锁：首次触摸时预热 AudioContext
+    const unlock = () => {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // 播放极短静音来激活音频系统
+      const buf = ctx.createBuffer(1, 1, 22050);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(ctx.destination);
+      src.start(0);
+      ctx.resume();
+      document.removeEventListener('click', unlock);
+      document.removeEventListener('touchstart', unlock);
+    };
+    document.addEventListener('click', unlock);
+    document.addEventListener('touchstart', unlock);
   },
 
   // === 进度存取 ===

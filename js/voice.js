@@ -1,66 +1,150 @@
 // English Lab — 语音引擎
-// iOS Safari 兼容：必须在用户手势回调中同步调用 speak()
+// Edge TTS WebSocket + iOS 兼容播放
 
 const Voice = {
-  _synth: null,
-  _voices: [],
+  _ws: null,
+  _wsBusy: false,
+  _pending: [],        // 等待播放的文本队列
+  _currentAudio: null,
 
   init() {
-    if (!('speechSynthesis' in window)) return;
-    this._synth = window.speechSynthesis;
-    const load = () => { this._voices = this._synth.getVoices(); };
-    load();
-    this._synth.onvoiceschanged = load;
+    // 什么都不用做，首次 speak 时自动建 WebSocket
   },
 
-  // 找最优语音
-  _pickVoice() {
-    if (this._voices.length === 0) {
-      this._voices = this._synth.getVoices();
-    }
-    const best = [
-      'Samantha (Enhanced)', 'Samantha',
-      'Daniel (Enhanced)', 'Daniel',
-      'Google US English',
-      'Karen (Enhanced)', 'Karen',
-    ];
-    for (const name of best) {
-      const v = this._voices.find(v => v.name === name);
-      if (v) return v;
-    }
-    return this._voices.find(v => v.lang?.startsWith('en')) || null;
+  _uuid() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0;
+      return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
   },
 
-  // iOS 解锁：必须在用户手势中调用一次真正的 speak
-  // 返回 true 表示已解锁成功
-  _unlock() {
-    if (!this._synth) return false;
-    const u = new SpeechSynthesisUtterance('hello');
-    u.volume = 0;
-    u.rate = 2;
-    this._synth.cancel();
-    this._synth.speak(u);
-    return true;
+  _connect() {
+    if (this._ws && this._ws.readyState === WebSocket.OPEN) return Promise.resolve(this._ws);
+    if (this._ws && this._ws.readyState === WebSocket.CONNECTING) return Promise.resolve(this._ws);
+
+    return new Promise((resolve, reject) => {
+      try {
+        const ws = new WebSocket(
+          'wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4'
+        );
+        ws.binaryType = 'arraybuffer';
+        const timer = setTimeout(() => { if (!ws._open) { ws.close(); reject(new Error('timeout')); } }, 4000);
+        ws.onopen = () => { ws._open = true; clearTimeout(timer); this._ws = ws; resolve(ws); };
+        ws.onerror = () => { clearTimeout(timer); reject(new Error('连接失败')); };
+        ws.onclose = () => { this._ws = null; };
+        ws.onmessage = () => {}; // 占位，实际在 _speakOne 里绑定
+      } catch(e) { reject(e); }
+    });
   },
 
+  _escapeXml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+
+  _send(ws, requestId, contentType, path, body) {
+    const h = `X-RequestId:${requestId}\r\nContent-Type:${contentType}\r\nPath:${path}\r\n\r\n`;
+    const enc = new TextEncoder();
+    const hb = enc.encode(h);
+    const bb = body ? enc.encode(body) : new Uint8Array(0);
+    const msg = new Uint8Array(hb.length + bb.length);
+    msg.set(hb, 0);
+    if (body) msg.set(bb, hb.length);
+    ws.send(msg);
+  },
+
+  // 播放音频 chunks
+  _playChunks(chunks) {
+    // 在 iOS 上，Audio 元素必须在用户手势中创建/play
+    // 但我们已经"预热"了 AudioContext，所以这里 play 应该可以
+    const blob = new Blob(chunks, { type: 'audio/mp3' });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    this._currentAudio = audio;
+    audio.play().catch(() => {
+      // iOS 可能拒绝自动播放，静默失败
+      URL.revokeObjectURL(url);
+    });
+    audio.onended = () => { URL.revokeObjectURL(url); this._currentAudio = null; };
+    audio.onerror = () => { URL.revokeObjectURL(url); this._currentAudio = null; };
+  },
+
+  _speakOne(ws, text) {
+    return new Promise((resolve, reject) => {
+      const chunks = [];
+      const requestId = this._uuid();
+      let timeout;
+
+      const onMsg = (event) => {
+        if (typeof event.data === 'string') {
+          if (event.data.includes('Path:turn.end')) {
+            clearTimeout(timeout);
+            ws.removeEventListener('message', onMsg);
+            resolve(chunks);
+          }
+          return;
+        }
+        const data = new Uint8Array(event.data);
+        // 跳过 header 行（直到第一个 0x0a）
+        let start = 0;
+        for (let i = 0; i < Math.min(data.length, 100); i++) {
+          if (data[i] === 0x0a) { start = i + 1; break; }
+        }
+        if (data.length > start) chunks.push(data.slice(start));
+      };
+
+      ws.addEventListener('message', onMsg);
+
+      // 发送 SSML 配置
+      const config = JSON.stringify({
+        context: { synthesis: { audio: { metadataoptions: { sentenceBoundaryEnabled: false, wordBoundaryEnabled: true }, outputFormat: 'audio-24khz-48kbitrate-mono-mp3' } } }
+      });
+      this._send(ws, requestId, 'application/json; charset=utf-8', 'speech.config', config);
+
+      const escaped = this._escapeXml(text);
+      const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US"><voice name="en-US-JennyNeural"><prosody rate="-15.00%" pitch="+0Hz">${escaped}</prosody></voice></speak>`;
+      this._send(ws, requestId, 'application/ssml+xml', 'ssml', ssml);
+
+      timeout = setTimeout(() => {
+        ws.removeEventListener('message', onMsg);
+        if (chunks.length > 0) resolve(chunks); else reject(new Error('超时'));
+      }, 5000);
+    });
+  },
+
+  // === 对外接口 ===
   speak(text) {
     if (!text || !text.trim()) return;
-    if (!this._synth) return;
 
-    this._synth.cancel();
-
-    const u = new SpeechSynthesisUtterance(text);
-    const voice = this._pickVoice();
-    if (voice) u.voice = voice;
-    u.lang = 'en-US';
-    u.rate = 0.85;
-    u.pitch = 1.0;
-    u.volume = 1;
-
-    this._synth.speak(u);
+    this._connect().then(ws => {
+      return this._speakOne(ws, text);
+    }).then(chunks => {
+      this._playChunks(chunks);
+    }).catch(() => {
+      // 兜底：用浏览器语音
+      this._speakBrowser(text);
+    });
   },
 
   stop() {
-    if (this._synth) this._synth.cancel();
+    if (this._currentAudio) {
+      this._currentAudio.pause();
+      this._currentAudio = null;
+    }
+    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  },
+
+  // === 浏览器语音兜底 ===
+  _speakBrowser(text) {
+    if (!('speechSynthesis' in window)) return;
+    window.speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-US';
+    u.rate = 0.85;
+    const voices = window.speechSynthesis.getVoices();
+    const best = voices.find(v => v.name.includes('Samantha'))
+      || voices.find(v => v.name.includes('Google'))
+      || voices.find(v => v.lang?.startsWith('en'));
+    if (best) u.voice = best;
+    window.speechSynthesis.speak(u);
   },
 };

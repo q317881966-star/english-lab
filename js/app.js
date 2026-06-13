@@ -11,6 +11,8 @@ const App = {
     this._loadProgress();
     this._bindUI();
     this._render();
+    // iOS 需要在用户手势中解锁音频
+    document.querySelector('.app').addEventListener('click', () => Voice.unlock(), { once: true });
   },
 
   // === 进度存取 ===

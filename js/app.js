@@ -153,7 +153,11 @@ const App = {
       if (playBtn || exPlayBtn) {
         e.preventDefault();
         e.stopPropagation();
-        Voice.speak((playBtn || exPlayBtn).dataset.text);
+        const btn = playBtn || exPlayBtn;
+        // 视觉反馈：按钮闪烁
+        btn.style.background = 'rgba(227,179,65,0.3)';
+        setTimeout(() => { btn.style.background = ''; }, 200);
+        Voice.speak(btn.dataset.text);
         return;
       }
 

@@ -1,5 +1,5 @@
 // English Lab — Service Worker（离线缓存 + PWA）
-const CACHE = 'english-lab-v1';
+const CACHE = 'english-lab-v2';
 
 const PRECACHE = [
   './',
@@ -7,15 +7,9 @@ const PRECACHE = [
   './manifest.json',
   './icon.svg',
   './css/style.css',
-  './js/sm2.js',
-  './js/storage.js',
   './js/voice.js',
   './js/app.js',
-  './data/vocabulary.js',
-  './data/phrases.js',
-  './data/dialogues.js',
   './data/patterns.js',
-  './data/studyPlan.js',
 ];
 
 // 安装：预缓存所有核心文件

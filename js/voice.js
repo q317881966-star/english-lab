@@ -53,29 +53,31 @@ const Voice = {
 
   // 通过已解锁的 AudioContext 播放，绕开 iOS HTML5 Audio 限制
   _playChunks(chunks) {
-    return new Promise((resolve, reject) => {
-      if (!this._ctx) { reject(new Error('no ctx')); return; }
+    if (!this._ctx) return Promise.reject(new Error('no ctx'));
 
-      // 确保 AudioContext 处于运行状态
-      if (this._ctx.state === 'suspended') {
-        this._ctx.resume();
-      }
+    // 等待 AudioContext 恢复
+    const ready = this._ctx.state === 'suspended'
+      ? this._ctx.resume()
+      : Promise.resolve();
 
-      const blob = new Blob(chunks, { type: 'audio/mp3' });
-      const reader = new FileReader();
-      reader.onload = () => {
-        this._ctx.decodeAudioData(reader.result, (buf) => {
-          this.stop();
-          const src = this._ctx.createBufferSource();
-          src.buffer = buf;
-          src.connect(this._ctx.destination);
-          src.start(0);
-          this._source = src;
-          src.onended = () => { this._source = null; resolve(); };
-        }, () => { reject(new Error('decode fail')); });
-      };
-      reader.onerror = () => { reject(new Error('read fail')); };
-      reader.readAsArrayBuffer(blob);
+    return ready.then(() => {
+      return new Promise((resolve, reject) => {
+        const blob = new Blob(chunks, { type: 'audio/mp3' });
+        const reader = new FileReader();
+        reader.onload = () => {
+          this._ctx.decodeAudioData(reader.result, (buf) => {
+            this.stop();
+            const src = this._ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(this._ctx.destination);
+            src.start(0);
+            this._source = src;
+            src.onended = () => { this._source = null; resolve(); };
+          }, () => { reject(new Error('decode fail')); });
+        };
+        reader.onerror = () => { reject(new Error('read fail')); };
+        reader.readAsArrayBuffer(blob);
+      });
     });
   },
 

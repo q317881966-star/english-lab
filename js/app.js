@@ -119,12 +119,12 @@ const App = {
     const tplText = this._esc(p.pattern.replace(/____/g, 'something'));
     return `
       <div class="pattern-card" data-id="${p.id}">
-        <div class="pattern-row" onclick="this.closest('.pattern-card').classList.toggle('expanded')">
+        <div class="pattern-row">
           <div class="pattern-body">
             <div class="pattern-en">${enHtml}</div>
             <div class="pattern-cn">${this._esc(p.cn)}</div>
           </div>
-          <button class="pattern-play" data-text="${tplText}" onclick="event.stopPropagation();Voice.speak(this.dataset.text)">🔊</button>
+          <button class="pattern-play" data-text="${tplText}">🔊</button>
           <span class="pattern-arrow">▼</span>
         </div>
         <div class="pattern-examples">
@@ -135,7 +135,7 @@ const App = {
                 <div class="example-en">${this._esc(ex)}</div>
                 ${p.examplesCn && p.examplesCn[ei] ? `<div class="example-cn">${this._esc(p.examplesCn[ei])}</div>` : ''}
               </div>
-              <button class="example-play" data-text="${this._esc(ex)}" onclick="event.stopPropagation();Voice.speak(this.dataset.text)">🔊</button>
+              <button class="example-play" data-text="${this._esc(ex)}">🔊</button>
             </div>
           `).join('')}
         </div>
@@ -144,7 +144,26 @@ const App = {
   },
 
   _bindEvents() {
-    // 句型展开/收起和播放已通过 inline onclick 处理
+    const main = document.getElementById('main-content');
+
+    const handler = (e) => {
+      const playBtn = e.target.closest('.pattern-play');
+      const exPlayBtn = e.target.closest('.example-play');
+
+      if (playBtn || exPlayBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        Voice.speak((playBtn || exPlayBtn).dataset.text);
+        return;
+      }
+
+      const row = e.target.closest('.pattern-row');
+      if (row) {
+        row.closest('.pattern-card').classList.toggle('expanded');
+      }
+    };
+
+    main.addEventListener('click', handler);
   },
 
   _esc(s) {

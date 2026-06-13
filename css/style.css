@@ -103,18 +103,46 @@ body {
   padding: 0 16px 24px;
 }
 
-/* 分类标题 */
-.cat-header {
-  font-size: 0.8rem;
+/* 分级区块 */
+.tier-section { margin-bottom: 24px; }
+
+.tier-header {
+  font-size: 0.78rem;
   font-weight: 700;
+  padding: 8px 12px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tier-s { background: rgba(227,179,65,0.12); color: #e3b341; }
+.tier-a { background: rgba(88,166,255,0.10); color: #58a6ff; }
+.tier-b { background: rgba(139,148,158,0.08); color: #8b949e; }
+
+.tier-count {
+  font-weight: 400;
+  font-size: 0.7rem;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+/* 分类组 */
+.cat-group { margin-bottom: 6px; }
+
+.cat-label {
+  font-size: 0.72rem;
+  font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 1px;
-  padding: 20px 0 10px;
-  margin-top: 4px;
+  padding: 14px 0 8px;
 }
-.cat-header:first-child { padding-top: 6px; }
-.cat-count { font-weight: 400; color: var(--text-muted); }
+.cat-n {
+  font-weight: 400;
+  font-size: 0.68rem;
+  opacity: 0.6;
+}
 
 /* === 句型卡片 === */
 .pattern-card {

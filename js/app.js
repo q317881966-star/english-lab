@@ -1,21 +1,44 @@
-// English Lab — 句型库（按分类浏览，108核心句型）
+// English Lab — 句型库（S/A/B 三级分级）
+
+// 分级标准：
+// S级(20)：日常开口第一句，必不可少
+// A级(30)：高频常用，稍进阶
+// B级(58)：场景化，拓展表达
+const TIER = {
+  // === S级：核心20 ===
+  'p01': 'S', 'p02': 'S', 'p13': 'S', 'p14': 'S', 'p16': 'S',
+  'p17': 'S', 'p21': 'S', 'p26': 'S', 'p36': 'S', 'p38': 'S',
+  'p47': 'S', 'p48': 'S', 'p49': 'S', 'p50': 'S', 'p51': 'S',
+  'p52': 'S', 'p53': 'S', 'p55': 'S', 'p69': 'S', 'p96': 'S',
+  // === A级：高频30 ===
+  'p04': 'A', 'p05': 'A', 'p07': 'A', 'p08': 'A', 'p10': 'A',
+  'p11': 'A', 'p12': 'A', 'p15': 'A', 'p18': 'A', 'p19': 'A',
+  'p20': 'A', 'p22': 'A', 'p27': 'A', 'p37': 'A', 'p39': 'A',
+  'p42': 'A', 'p43': 'A', 'p44': 'A', 'p56': 'A', 'p59': 'A',
+  'p62': 'A', 'p63': 'A', 'p64': 'A', 'p71': 'A', 'p73': 'A',
+  'p78': 'A', 'p84': 'A', 'p95': 'A', 'p101': 'A', 'p104': 'A',
+};
+
+const TIER_LABEL = {
+  S: { name: 'S级 · 核心必备', cls: 'tier-s', icon: '⭐' },
+  A: { name: 'A级 · 高频常用', cls: 'tier-a', icon: '🔷' },
+  B: { name: 'B级 · 进阶拓展', cls: 'tier-b', icon: '🔸' },
+};
+
+// 分类显示顺序
+const CAT_ORDER = [
+  '表达观点', '询问信息', '表达需求', '日常沟通',
+  '描述事实', '提出建议', '比较选择', '条件因果',
+  '时间顺序', '商务场景',
+];
 
 const App = {
-  _categories: [],
-  _activeCat: null,
-
-  // 分类排序：核心在前
-  _CAT_ORDER: [
-    '表达观点', '询问信息', '表达需求', '日常沟通',
-    '描述事实', '提出建议', '比较选择', '条件因果',
-    '时间顺序', '商务场景',
-  ],
+  _tiers: {},  // { S: { cat: [patterns] }, A: {...}, B: {...} }
 
   init() {
     Voice.init();
-    this._buildCategories();
-    this._renderTabs();
-    this._renderAll();
+    this._buildTiers();
+    this._render();
     this._bindEvents();
     // iOS 音频解锁
     const unlock = () => {
@@ -33,42 +56,69 @@ const App = {
     document.addEventListener('touchstart', unlock);
   },
 
-  _buildCategories() {
-    const map = {};
+  _buildTiers() {
+    const result = { S: {}, A: {}, B: {} };
     SENTENCE_PATTERNS.forEach(p => {
-      if (!map[p.function]) map[p.function] = [];
-      map[p.function].push(p);
+      const tier = TIER[p.id] || 'B';
+      if (!result[tier][p.function]) result[tier][p.function] = [];
+      result[tier][p.function].push(p);
     });
-    // 按指定顺序排
-    this._categories = this._CAT_ORDER
-      .filter(cat => map[cat])
-      .map(cat => ({ name: cat, patterns: map[cat] }));
-    this._activeCat = this._categories[0]?.name || null;
+    this._tiers = result;
   },
 
-  _renderTabs() {
-    const tabs = document.getElementById('category-tabs');
-    tabs.innerHTML = this._categories.map(c =>
-      `<button class="cat-tab${c.name === this._activeCat ? ' active' : ''}" data-cat="${this._esc(c.name)}">${c.name} (${c.patterns.length})</button>`
-    ).join('');
+  _countTier(tier) {
+    let n = 0;
+    const cats = this._tiers[tier] || {};
+    Object.values(cats).forEach(arr => n += arr.length);
+    return n;
   },
 
-  _renderAll() {
+  _render() {
     const main = document.getElementById('main-content');
-    main.innerHTML = this._categories.map(cat => `
-      <div class="cat-section" data-cat="${this._esc(cat.name)}">
-        <div class="cat-header">${cat.name} <span class="cat-count">· ${cat.patterns.length}条</span></div>
-        ${cat.patterns.map((p, pi) => this._renderCard(p, pi)).join('')}
-      </div>
-    `).join('');
+    let html = '';
+
+    ['S', 'A', 'B'].forEach(tier => {
+      const cats = this._tiers[tier];
+      const label = TIER_LABEL[tier];
+      const total = this._countTier(tier);
+      if (total === 0) return;
+
+      html += `<div class="tier-section"><div class="tier-header ${label.cls}">${label.icon} ${label.name} <span class="tier-count">${total}条</span></div>`;
+
+      // 按 CAT_ORDER 排列分类
+      CAT_ORDER.forEach(cat => {
+        const patterns = cats[cat];
+        if (!patterns || patterns.length === 0) return;
+        html += `
+          <div class="cat-group">
+            <div class="cat-label">${cat} <span class="cat-n">${patterns.length}条</span></div>
+            ${patterns.map(p => this._renderCard(p)).join('')}
+          </div>
+        `;
+      });
+
+      // 处理不在 CAT_ORDER 中的分类
+      Object.keys(cats).forEach(cat => {
+        if (CAT_ORDER.includes(cat)) return;
+        const patterns = cats[cat];
+        html += `
+          <div class="cat-group">
+            <div class="cat-label">${cat} <span class="cat-n">${patterns.length}条</span></div>
+            ${patterns.map(p => this._renderCard(p)).join('')}
+          </div>
+        `;
+      });
+
+      html += '</div>';
+    });
+
+    main.innerHTML = html;
   },
 
-  _renderCard(p, pi) {
-    const catIdx = this._categories.findIndex(c => c.name === p.function);
-    // 高亮空白位 ____
+  _renderCard(p) {
     const enHtml = this._esc(p.pattern).replace(/____/g, '<span class="blank">____</span>');
     return `
-      <div class="pattern-card" data-id="${p.id}" data-cat-idx="${catIdx}" data-pi="${pi}">
+      <div class="pattern-card" data-id="${p.id}">
         <div class="pattern-row">
           <div class="pattern-body">
             <div class="pattern-en">${enHtml}</div>
@@ -96,7 +146,6 @@ const App = {
   _bindEvents() {
     const main = document.getElementById('main-content');
 
-    // 句型卡片展开/收起
     main.addEventListener('click', (e) => {
       const row = e.target.closest('.pattern-row');
       const playBtn = e.target.closest('.pattern-play');
@@ -114,23 +163,6 @@ const App = {
       }
       if (row) {
         row.closest('.pattern-card').classList.toggle('expanded');
-      }
-    });
-
-    // 分类标签点击 → 滚动到对应区域
-    document.getElementById('category-tabs').addEventListener('click', (e) => {
-      const tab = e.target.closest('.cat-tab');
-      if (!tab) return;
-
-      // 更新 active 样式
-      document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-      this._activeCat = tab.dataset.cat;
-
-      // 滚动到对应分类
-      const section = main.querySelector(`.cat-section[data-cat="${tab.dataset.cat}"]`);
-      if (section) {
-        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
     });
   },

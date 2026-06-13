@@ -19,7 +19,16 @@
 
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      // 新 SW 接管后自动刷新
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        window.location.reload();
+      });
+      // 注销旧 SW 并注册新版
+      navigator.serviceWorker.getRegistrations().then(regs => {
+        regs.forEach(r => r.unregister());
+      }).then(() => {
+        navigator.serviceWorker.register('sw.js?v=2').catch(() => {});
+      });
     }
   </script>
 </head>

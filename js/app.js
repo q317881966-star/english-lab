@@ -163,7 +163,6 @@ const App = {
         e.preventDefault();
         e.stopPropagation();
         const btn = playBtn || exPlayBtn;
-        // 视觉反馈：按钮闪烁
         btn.style.background = 'rgba(227,179,65,0.3)';
         setTimeout(() => { btn.style.background = ''; }, 200);
         Voice.speak(btn.dataset.text);
@@ -177,6 +176,23 @@ const App = {
     };
 
     main.addEventListener('click', handler);
+
+    // 诊断：点击标题播放测试音（确认 AudioContext 能否出声）
+    document.querySelector('.topbar-title').addEventListener('click', () => {
+      if (!Voice._ctx) return;
+      const ctx = Voice._ctx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 440;
+      gain.gain.value = 0.3;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(0);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+      osc.stop(ctx.currentTime + 0.5);
+    });
   },
 
   _esc(s) {

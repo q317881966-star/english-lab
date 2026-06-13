@@ -29,27 +29,24 @@ self.addEventListener('activate', event => {
   );
 });
 
-// 请求：缓存优先（静态文件），网络优先（外部 API）
+// 请求：网络优先（保证最新），缓存兜底（离线可用）
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // 跳过非 GET 请求
   if (event.request.method !== 'GET') return;
-
-  // 跳过外部 API（Edge TTS / Google TTS / OpenAI TTS / Google Fonts）
   if (url.hostname !== self.location.hostname) return;
 
   event.respondWith(
-    caches.match(event.request).then(cached => {
-      // 缓存命中直接返回，同时后台更新
-      const fetched = fetch(event.request).then(response => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE).then(cache => cache.put(event.request, clone));
-        }
-        return response;
-      });
-      return cached || fetched;
+    fetch(event.request).then(response => {
+      // 网络成功 → 更新缓存 + 返回
+      if (response.ok) {
+        const clone = response.clone();
+        caches.open(CACHE).then(cache => cache.put(event.request, clone));
+      }
+      return response;
+    }).catch(() => {
+      // 网络失败 → 缓存兜底
+      return caches.match(event.request);
     })
   );
 });

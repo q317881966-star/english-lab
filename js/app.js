@@ -39,8 +39,9 @@ const App = {
     this._buildTiers();
     this._render();
     this._bindEvents();
-    // iOS 音频解锁：首次触摸时预热 AudioContext
+    // iOS 音频解锁：首次触摸时预热所有音频子系统
     const unlock = () => {
+      // AudioContext
       const ctx = new (window.AudioContext || window.webkitAudioContext)();
       const buf = ctx.createBuffer(1, 1, 22050);
       const src = ctx.createBufferSource();
@@ -48,8 +49,16 @@ const App = {
       src.connect(ctx.destination);
       src.start(0);
       ctx.resume();
-      // 同时激活 Voice 模块的 AudioContext
       if (Voice._ctx && Voice._ctx.state === 'suspended') Voice._ctx.resume();
+
+      // SpeechSynthesis 预热（iOS 首次调用可能静默失败）
+      if ('speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance('');
+        u.volume = 0;
+        u.rate = 1;
+        window.speechSynthesis.speak(u);
+      }
+
       document.removeEventListener('click', unlock);
       document.removeEventListener('touchstart', unlock);
     };

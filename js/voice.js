@@ -5,9 +5,17 @@ const Voice = {
   _ws: null,
   _ctx: null,
   _source: null,
+  _utt: null,  // 保持 utterance 引用防止 iOS GC
 
   init() {
     this._ctx = new (window.AudioContext || window.webkitAudioContext)();
+    // 预加载语音列表（iOS 懒加载，首次 getVoices() 可能为空）
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.getVoices();
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.getVoices();
+      };
+    }
   },
 
   _uuid() {
@@ -144,20 +152,25 @@ const Voice = {
       try { this._source.stop(); } catch(e) {}
       this._source = null;
     }
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      this._utt = null;
+    }
   },
 
   _speakBrowser(text) {
     if (!('speechSynthesis' in window)) return;
-    window.speechSynthesis.cancel();
+    // iOS bug: cancel() + immediate speak() = 静默失败，所以不 cancel
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'en-US';
-    u.rate = 0.85;
+    u.rate = 0.8;
+    u.volume = 1;
     const voices = window.speechSynthesis.getVoices();
     const best = voices.find(v => v.name.includes('Samantha'))
-      || voices.find(v => v.name.includes('Google'))
+      || voices.find(v => v.lang === 'en-US' && v.localService)
       || voices.find(v => v.lang?.startsWith('en'));
     if (best) u.voice = best;
+    this._utt = u;
     window.speechSynthesis.speak(u);
   },
 };

@@ -114,14 +114,15 @@ const App = {
 
   _renderCard(p) {
     const enHtml = this._esc(p.pattern).replace(/____/g, '<span class="blank">____</span>');
+    const tplText = this._esc(p.pattern.replace(/____/g, 'something'));
     return `
       <div class="pattern-card" data-id="${p.id}">
-        <div class="pattern-row">
+        <div class="pattern-row" onclick="this.closest('.pattern-card').classList.toggle('expanded')">
           <div class="pattern-body">
             <div class="pattern-en">${enHtml}</div>
             <div class="pattern-cn">${this._esc(p.cn)}</div>
           </div>
-          <button class="pattern-play" data-text="${this._esc(p.pattern.replace(/____/g, 'something'))}">🔊</button>
+          <button class="pattern-play" data-text="${tplText}" onclick="event.stopPropagation();Voice.speak(this.dataset.text)">🔊</button>
           <span class="pattern-arrow">▼</span>
         </div>
         <div class="pattern-examples">
@@ -132,7 +133,7 @@ const App = {
                 <div class="example-en">${this._esc(ex)}</div>
                 ${p.examplesCn && p.examplesCn[ei] ? `<div class="example-cn">${this._esc(p.examplesCn[ei])}</div>` : ''}
               </div>
-              <button class="example-play" data-text="${this._esc(ex)}">🔊</button>
+              <button class="example-play" data-text="${this._esc(ex)}" onclick="event.stopPropagation();Voice.speak(this.dataset.text)">🔊</button>
             </div>
           `).join('')}
         </div>
@@ -141,27 +142,7 @@ const App = {
   },
 
   _bindEvents() {
-    const main = document.getElementById('main-content');
-
-    main.addEventListener('click', (e) => {
-      const row = e.target.closest('.pattern-row');
-      const playBtn = e.target.closest('.pattern-play');
-      const exPlayBtn = e.target.closest('.example-play');
-
-      if (exPlayBtn) {
-        e.stopPropagation();
-        Voice.speak(exPlayBtn.dataset.text);
-        return;
-      }
-      if (playBtn) {
-        e.stopPropagation();
-        Voice.speak(playBtn.dataset.text);
-        return;
-      }
-      if (row) {
-        row.closest('.pattern-card').classList.toggle('expanded');
-      }
-    });
+    // 句型展开/收起和播放已通过 inline onclick 处理
   },
 
   _esc(s) {

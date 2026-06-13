@@ -125,9 +125,18 @@ const Voice = {
   speak(text) {
     if (!text || !text.trim()) return;
 
+    // 1. 立即启动浏览器语音（在用户手势内，iOS 不拦截）
+    this._speakBrowser(text);
+
+    // 2. 后台尝试 Edge TTS 高音质，成功则替换
     this._connect().then(ws => this._speakOne(ws, text))
-      .then(chunks => this._playChunks(chunks))
-      .catch(() => this._speakBrowser(text));
+      .then(chunks => {
+        this.stop();
+        return this._playChunks(chunks);
+      })
+      .catch(() => {
+        // Edge TTS 失败，浏览器语音已在播放
+      });
   },
 
   stop() {

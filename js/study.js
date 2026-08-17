@@ -85,6 +85,9 @@ const Study = {
       dayData.pattern.examples.slice(0, 4).forEach(([en, cn]) => {
         pool.push({ en, cn, fromToday: true });
       });
+      // 新课第一题改为口语题:听中文,开口说英文
+      if (pool.length > 0) pool[0].speech = true;
+      return pool.map(item => ({ en: item.en, cn: item.cn, speech: !!item.speech }));
     } else {
       // 复习日:全部已排期课程的例句池
       const learnedBefore = allDays.filter(d => d.day < data.currentDay && d.pattern);
@@ -117,7 +120,7 @@ const Study = {
       return this._shuffle(result).slice(0, 5).map(item => ({ en: item.en, cn: item.cn }));
     }
 
-    return pool.map(item => ({ en: item.en, cn: item.cn }));
+    return pool.map(item => ({ en: item.en, cn: item.cn, speech: false }));
   },
 
   // 质检结果:答对 → 不处理(学新时已排期);答错 → 弱项 + 明天再见
@@ -187,6 +190,42 @@ const StudyUI = {
         Voice.speak(btn.dataset.text);
       }
     });
+    // 跟读按钮:点击后听您说,判断是否说对
+    this.root.addEventListener('click', e => {
+      const mic = e.target.closest('.btn-mic');
+      if (!mic || mic.dataset.speech === undefined) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const line = mic.closest('.example-line');
+      const fb = line.querySelector('.mic-fb');
+      const en = line.querySelector('.ex-en').textContent;
+      this._handleMic(mic, en, fb);
+    });
+  },
+
+  // 跟读流程:识别 → 比对 → 反馈
+  async _handleMic(btn, en, fb) {
+    if (!Speech.supported()) {
+      fb.innerHTML = '<span class="fb-no">此浏览器不支持语音识别</span>';
+      return;
+    }
+    btn.disabled = true;
+    const old = btn.textContent;
+    btn.textContent = '聆听中…';
+    try {
+      const heard = await Speech.recognize();
+      const score = Math.round(Speech.score(heard, en) * 100);
+      if (Speech.pass(heard, en)) {
+        fb.innerHTML = `<span class="fb-ok">✓ 说得很好(${score}%)</span>`;
+      } else {
+        fb.innerHTML = `<span class="fb-no">再听一遍标准发音(识别到:${this._esc(heard)})</span>`;
+        Voice.speak(en);
+      }
+    } catch (err) {
+      fb.innerHTML = `<span class="fb-no">${this._esc(err.message)}</span>`;
+    }
+    btn.disabled = false;
+    btn.textContent = old;
   },
 
   // 打开今日工单
@@ -310,10 +349,12 @@ const StudyUI = {
       ${pat.examples.map(([en, cn]) => `
         <div class="example-line">
           <button class="btn-play" data-text="${this._esc(en)}">▶</button>
+          <button class="btn-mic" data-speech="1">🎤</button>
           <div class="example-text">
             <div class="ex-en">${this._esc(en)}</div>
             <div class="ex-cn">${this._esc(cn)}</div>
           </div>
+          <div class="mic-fb"></div>
         </div>
       `).join('')}
       <button class="btn-primary btn-block" data-action="learn-done">学完了,去质检</button>
@@ -343,6 +384,10 @@ const StudyUI = {
       return;
     }
     const item = this._quizItems[this._quizIdx];
+    if (item.speech) {
+      this._renderSpeechItem(item);
+      return;
+    }
     const chunks = Study._shuffle(Study.chunkSentence(item.en));
 
     body.innerHTML = `
@@ -366,6 +411,59 @@ const StudyUI = {
       picked: []
     };
     this._bindQuizEvents(body);
+  },
+
+  // 口语题:听中文 → 开口说英文 → 识别比对
+  _renderSpeechItem(item) {
+    const body = document.getElementById('workbench-body');
+    body.innerHTML = `
+      <div class="section-title">质检 · 开口说</div>
+      <div class="quiz-progress">第 ${this._quizIdx + 1} / ${this._quizItems.length} 题</div>
+      <div class="quiz-card speech-quiz">
+        <div class="speech-tip">看着中文,用英文说出来</div>
+        <div class="quiz-cn">${this._esc(item.cn)}</div>
+        <button class="btn-play-lg" data-text="${this._esc(item.en)}">先听标准发音</button>
+        <button class="btn-mic-lg" id="speech-mic">🎤 开口说</button>
+        <div class="quiz-feedback" id="quiz-feedback"></div>
+        <button class="btn-ghost btn-block" data-action="skip-speech">说不好,先跳过</button>
+      </div>
+    `;
+
+    const micBtn = body.querySelector('#speech-mic');
+    const fb = body.querySelector('#quiz-feedback');
+
+    micBtn.addEventListener('click', async () => {
+      if (!Speech.supported()) {
+        fb.innerHTML = '<span class="fb-no">此浏览器不支持语音识别</span>';
+        return;
+      }
+      micBtn.disabled = true;
+      micBtn.textContent = '🎤 聆听中…';
+      try {
+        const heard = await Speech.recognize();
+        if (Speech.pass(heard, item.en)) {
+          fb.innerHTML = '<span class="fb-ok">✓ 说得很好!</span>';
+          setTimeout(() => { this._quizIdx++; this._renderQuizItem(); }, 900);
+        } else {
+          fb.innerHTML = `<span class="fb-no">再试一次,先听标准发音(识别到:${this._esc(heard)})</span>`;
+          Voice.speak(item.en);
+          micBtn.disabled = false;
+          micBtn.textContent = '🎤 开口说';
+        }
+      } catch (err) {
+        fb.innerHTML = `<span class="fb-no">${this._esc(err.message)}</span>`;
+        micBtn.disabled = false;
+        micBtn.textContent = '🎤 开口说';
+      }
+    });
+
+    this._bindOnce(body, 'skip-speech', () => {
+      const key = Study._keyOf(item.en);
+      if (!this._quizWrong.includes(key)) this._quizWrong.push(key);
+      Study.quizResult(this.data, item.en, false);
+      this._quizIdx++;
+      this._renderQuizItem();
+    });
   },
 
   _bindQuizEvents(body) {

@@ -1,11 +1,27 @@
 // English Lab — 语音引擎
 // Edge TTS WebSocket → AudioContext 解码播放（iOS 已解锁 AudioContext）
+// 自然语音优先:Edge TTS 神经语音,失败回退浏览器语音;可在进度页选择音色
 
 const Voice = {
   _ws: null,
   _ctx: null,
   _source: null,
   _utt: null,  // 保持 utterance 引用防止 iOS GC
+
+  // 神经语音候选(自然度接近真人,类似 GPT 语音)
+  VOICES: [
+    { id: 'en-US-JennyNeural', name: 'Jenny · 美音女声' },
+    { id: 'en-US-AriaNeural', name: 'Aria · 美音女声' },
+    { id: 'en-US-EmmaNeural', name: 'Emma · 美音女声' },
+    { id: 'en-GB-SoniaNeural', name: 'Sonia · 英音女声' },
+    { id: 'en-AU-NatashaNeural', name: 'Natasha · 澳音女声' }
+  ],
+
+  _voiceId() {
+    try {
+      return localStorage.getItem('english-lab-voice') || this.VOICES[0].id;
+    } catch (e) { return this.VOICES[0].id; }
+  },
 
   init() {
     this._ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -89,7 +105,7 @@ const Voice = {
     });
   },
 
-  _speakOne(ws, text) {
+  _speakOne(ws, text, voiceId) {
     return new Promise((resolve, reject) => {
       const chunks = [];
       const requestId = this._uuid();
@@ -120,7 +136,7 @@ const Voice = {
       this._send(ws, requestId, 'application/json; charset=utf-8', 'speech.config', config);
 
       const escaped = this._escapeXml(text);
-      const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US"><voice name="en-US-JennyNeural"><prosody rate="-15.00%" pitch="+0Hz">${escaped}</prosody></voice></speak>`;
+      const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="en-US"><voice name="${voiceId}"><prosody rate="-10.00%" pitch="+0Hz">${escaped}</prosody></voice></speak>`;
       this._send(ws, requestId, 'application/ssml+xml', 'ssml', ssml);
 
       timeout = setTimeout(() => {
@@ -136,14 +152,24 @@ const Voice = {
     // 1. 立即启动浏览器语音（在用户手势内，iOS 不拦截）
     this._speakBrowser(text);
 
-    // 2. 后台尝试 Edge TTS 高音质，成功则替换
-    this._connect().then(ws => this._speakOne(ws, text))
+    // 2. 后台尝试 Edge TTS 神经语音，成功则替换；失败换备用音色重试一次
+    const voiceId = this._voiceId();
+    const trySpeak = ws => this._speakOne(ws, text, voiceId);
+
+    this._connect().then(trySpeak)
       .then(chunks => {
         this.stop();
         return this._playChunks(chunks);
       })
       .catch(() => {
-        // Edge TTS 失败，浏览器语音已在播放
+        return this._connect().then(trySpeak)
+          .then(chunks => {
+            this.stop();
+            return this._playChunks(chunks);
+          })
+          .catch(() => {
+            // 仍失败，浏览器语音已在播放
+          });
       });
   },
 
@@ -166,7 +192,10 @@ const Voice = {
     u.rate = 0.8;
     u.volume = 1;
     const voices = window.speechSynthesis.getVoices();
-    const best = voices.find(v => v.name.includes('Samantha'))
+    const best = voices.find(v => /Neural|Enhanced|Premium|Samantha|Ava|Zoe|Aria/i.test(v.name) && v.lang === 'en-US')
+      || voices.find(v => v.name.includes('Samantha'))
+      || voices.find(v => v.name.includes('Ava'))
+      || voices.find(v => v.name.includes('Zoe'))
       || voices.find(v => v.lang === 'en-US' && v.localService)
       || voices.find(v => v.lang?.startsWith('en'));
     if (best) u.voice = best;

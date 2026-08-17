@@ -195,6 +195,13 @@ const App = {
         <input type="file" id="import-file" accept="application/json" hidden>
       </div>
       <div class="data-hint">换手机或 Mac 同步时:先在一台设备导出,再到另一台导入</div>
+      <div class="section-title">语音音色</div>
+      <div class="voice-row">
+        ${Voice.VOICES.map(v => `
+          <button class="voice-btn ${Voice._voiceId() === v.id ? 'active' : ''}" data-voice="${v.id}">${this._esc(v.name)}</button>
+        `).join('')}
+      </div>
+      <div class="data-hint">默认自然女声;网络不稳时会自动回退系统语音。选好后回到今日工单即可生效。</div>
     `;
 
     main.querySelector('[data-action="export"]').addEventListener('click', () => Store.export());
@@ -217,6 +224,15 @@ const App = {
         if (idx >= 0) data.weakList.splice(idx, 1);
         Store.save(data);
         this._renderProgress();
+      });
+    });
+    main.querySelectorAll('.voice-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        try {
+          localStorage.setItem('english-lab-voice', btn.dataset.voice);
+        } catch (e) {}
+        main.querySelectorAll('.voice-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
       });
     });
   },

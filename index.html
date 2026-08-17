@@ -3,31 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-  <title>English Lab — 核心句型库</title>
+  <title>English Lab</title>
 
-  <meta name="theme-color" content="#0d1116">
+  <meta name="theme-color" content="#F2F2F7">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="句型库">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="English Lab">
+  <meta name="description" content="出国日常交流 · 每天 30 分钟 · 句型为骨架,单词为砖瓦">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="apple-touch-icon" href="icon-180.png">
 
   <link rel="stylesheet" href="css/style.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <script>
     if ('serviceWorker' in navigator) {
-      // 新 SW 接管后自动刷新
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         window.location.reload();
       });
-      // 注销旧 SW 并注册新版
       navigator.serviceWorker.getRegistrations().then(regs => {
         regs.forEach(r => r.unregister());
       }).then(() => {
-        navigator.serviceWorker.register('sw.js?v=2').catch(() => {});
+        navigator.serviceWorker.register('sw.js?v=3').catch(() => {});
       });
     }
   </script>
@@ -36,22 +34,46 @@
 
 <div class="app">
 
-  <!-- 顶栏 -->
-  <header class="topbar">
-    <span class="topbar-title">English Lab</span>
-    <span class="topbar-sub">75个核心句型</span>
+  <!-- 顶部大标题 -->
+  <header class="nav-bar">
+    <h1 class="nav-title">English Lab</h1>
   </header>
 
-  <!-- 分类标签（横向滑动） -->
-  <nav class="category-tabs" id="category-tabs"></nav>
+  <!-- 三个页面 -->
+  <main class="view" id="view-today"></main>
+  <main class="view" id="view-library" hidden></main>
+  <main class="view" id="view-progress" hidden></main>
 
-  <!-- 句型列表（滚动） -->
-  <main class="main" id="main-content"></main>
+  <!-- 底部导航(iPhone 风格毛玻璃) -->
+  <nav class="tab-bar">
+    <button class="tab-item" data-tab="today" aria-label="今日">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+      </svg>
+      <span>今日</span>
+    </button>
+    <button class="tab-item" data-tab="library" aria-label="句型库">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+      </svg>
+      <span>句型库</span>
+    </button>
+    <button class="tab-item" data-tab="progress" aria-label="进度">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+      </svg>
+      <span>进度</span>
+    </button>
+  </nav>
 
 </div>
 
 <script src="data/patterns.js"></script>
+<script src="data/screws.js"></script>
+<script src="data/course.js"></script>
 <script src="js/voice.js"></script>
+<script src="js/storage.js"></script>
+<script src="js/study.js"></script>
 <script src="js/app.js"></script>
 
 </body>

@@ -1,69 +1,69 @@
-// English Lab — 句型库（S/A/B 三级分级）
+// English Lab — 应用主逻辑
+// 三个页签:今日工单 / 图纸库(句型库) / 进度
 
-// 分级标准：
-// S级(20)：日常开口第一句，必不可少
-// A级(30)：高频常用，稍进阶
-// B级(25)：进阶拓展，逻辑表达
-const TIER = {
-  // === S级：核心20 === p01-p20
-  'p01': 'S', 'p02': 'S', 'p03': 'S', 'p04': 'S', 'p05': 'S',
-  'p06': 'S', 'p07': 'S', 'p08': 'S', 'p09': 'S', 'p10': 'S',
-  'p11': 'S', 'p12': 'S', 'p13': 'S', 'p14': 'S', 'p15': 'S',
-  'p16': 'S', 'p17': 'S', 'p18': 'S', 'p19': 'S', 'p20': 'S',
-  // === A级：高频30 === p21-p50
-  'p21': 'A', 'p22': 'A', 'p23': 'A', 'p24': 'A', 'p25': 'A',
-  'p26': 'A', 'p27': 'A', 'p28': 'A', 'p29': 'A', 'p30': 'A',
-  'p31': 'A', 'p32': 'A', 'p33': 'A', 'p34': 'A', 'p35': 'A',
-  'p36': 'A', 'p37': 'A', 'p38': 'A', 'p39': 'A', 'p40': 'A',
-  'p41': 'A', 'p42': 'A', 'p43': 'A', 'p44': 'A', 'p45': 'A',
-  'p46': 'A', 'p47': 'A', 'p48': 'A', 'p49': 'A', 'p50': 'A',
-};
-
-const TIER_LABEL = {
-  S: { name: 'S级 · 核心必备', cls: 'tier-s', icon: '⭐' },
-  A: { name: 'A级 · 高频常用', cls: 'tier-a', icon: '🔷' },
-  B: { name: 'B级 · 进阶拓展', cls: 'tier-b', icon: '🔸' },
-};
-
-// 分类显示顺序
-const CAT_ORDER = [
-  '日常沟通', '询问信息', '表达需求', '表达观点',
-  '描述事实', '提出建议', '比较选择', '条件因果',
-];
+// 句型分级:S级(前20)/ A级(30)/ B级(其余),与原版保持一致
+const TIER = Object.fromEntries(
+  SENTENCE_PATTERNS.map((p, i) => [p.id, i < 20 ? 'S' : i < 50 ? 'A' : 'B'])
+);
 
 const App = {
-  _tiers: {},  // { S: { cat: [patterns] }, A: {...}, B: {...} }
+  tabs: ['today', 'library', 'progress'],
 
   init() {
     Voice.init();
+    StudyUI.init(document.getElementById('view-today'));
     this._buildTiers();
-    this._render();
-    this._bindEvents();
-    // iOS 音频解锁：首次触摸时预热所有音频子系统
-    const unlock = () => {
-      // AudioContext
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      const buf = ctx.createBuffer(1, 1, 22050);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.connect(ctx.destination);
-      src.start(0);
-      ctx.resume();
-      if (Voice._ctx && Voice._ctx.state === 'suspended') Voice._ctx.resume();
+    this._bindTabs();
+    this._bindLibraryEvents();
+    this._bindKeys();
+    this.switchTab('today');
+  },
 
-      // SpeechSynthesis 预热（iOS 首次调用可能静默失败）
-      if ('speechSynthesis' in window) {
-        const u = new SpeechSynthesisUtterance('');
-        u.volume = 0;
-        u.rate = 1;
-        window.speechSynthesis.speak(u);
+  // ── 页签切换 ──
+  switchTab(tab) {
+    if (!this.tabs.includes(tab)) return;
+    document.querySelectorAll('.view').forEach(v => { v.hidden = true; });
+    document.getElementById('view-' + tab).hidden = false;
+    document.querySelectorAll('.tab-item').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
+    });
+    if (tab === 'today') StudyUI.open();
+    if (tab === 'library') this._renderLibrary();
+    if (tab === 'progress') this._renderProgress();
+  },
+
+  _bindTabs() {
+    document.querySelector('.tab-bar').addEventListener('click', e => {
+      const btn = e.target.closest('.tab-item');
+      if (btn) this.switchTab(btn.dataset.tab);
+    });
+  },
+
+  // 键盘快捷键:Mac 桌面端 Space=发音,Enter=检查
+  _bindKeys() {
+    document.addEventListener('keydown', e => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.code === 'Space') {
+        const btn = document.querySelector('.view:not([hidden]) .btn-play-lg, .view:not([hidden]) .btn-play');
+        if (btn) { e.preventDefault(); btn.click(); }
       }
+      if (e.code === 'Enter') {
+        const check = document.querySelector('.view:not([hidden]) [data-action="check-quiz"]');
+        if (check) { e.preventDefault(); check.click(); }
+      }
+    });
+  },
 
-      document.removeEventListener('click', unlock);
-      document.removeEventListener('touchstart', unlock);
-    };
-    document.addEventListener('click', unlock);
-    document.addEventListener('touchstart', unlock);
+  // ══════════════ 图纸库(原句型库保留) ══════════════
+  _tiers: {},
+  _catOrder: [
+    '日常沟通', '询问信息', '表达需求', '表达观点',
+    '描述事实', '提出建议', '比较选择', '条件因果'
+  ],
+  _tierLabel: {
+    S: { name: 'S级 · 核心必备', cls: 'tier-s', icon: '⭐' },
+    A: { name: 'A级 · 高频常用', cls: 'tier-a', icon: '🔷' },
+    B: { name: 'B级 · 进阶拓展', cls: 'tier-b', icon: '🔸' }
   },
 
   _buildTiers() {
@@ -76,26 +76,16 @@ const App = {
     this._tiers = result;
   },
 
-  _countTier(tier) {
-    let n = 0;
-    const cats = this._tiers[tier] || {};
-    Object.values(cats).forEach(arr => n += arr.length);
-    return n;
-  },
-
-  _render() {
-    const main = document.getElementById('main-content');
+  _renderLibrary() {
+    const main = document.getElementById('view-library');
     let html = '';
-
     ['S', 'A', 'B'].forEach(tier => {
       const cats = this._tiers[tier];
-      const label = TIER_LABEL[tier];
-      const total = this._countTier(tier);
+      const label = this._tierLabel[tier];
+      const total = Object.values(cats).reduce((n, arr) => n + arr.length, 0);
       if (total === 0) return;
-
       html += `<div class="tier-section"><div class="tier-header ${label.cls}">${label.icon} ${label.name} <span class="tier-count">${total}条</span></div>`;
-
-      CAT_ORDER.forEach(cat => {
+      this._catOrder.forEach(cat => {
         const patterns = cats[cat];
         if (!patterns || patterns.length === 0) return;
         html += `
@@ -105,21 +95,8 @@ const App = {
           </div>
         `;
       });
-
-      Object.keys(cats).forEach(cat => {
-        if (CAT_ORDER.includes(cat)) return;
-        const patterns = cats[cat];
-        html += `
-          <div class="cat-group">
-            <div class="cat-label">${cat} <span class="cat-n">${patterns.length}条</span></div>
-            ${patterns.map(p => this._renderCard(p)).join('')}
-          </div>
-        `;
-      });
-
       html += '</div>';
     });
-
     main.innerHTML = html;
   },
 
@@ -152,53 +129,102 @@ const App = {
     `;
   },
 
-  _bindEvents() {
-    const main = document.getElementById('main-content');
-
-    const handler = (e) => {
+  _bindLibraryEvents() {
+    const main = document.getElementById('view-library');
+    main.addEventListener('click', e => {
       const playBtn = e.target.closest('.pattern-play');
       const exPlayBtn = e.target.closest('.example-play');
-
       if (playBtn || exPlayBtn) {
         e.preventDefault();
         e.stopPropagation();
         const btn = playBtn || exPlayBtn;
-        btn.style.background = 'rgba(227,179,65,0.3)';
-        setTimeout(() => { btn.style.background = ''; }, 200);
         Voice.speak(btn.dataset.text);
         return;
       }
-
       const row = e.target.closest('.pattern-row');
-      if (row) {
-        row.closest('.pattern-card').classList.toggle('expanded');
-      }
-    };
+      if (row) row.closest('.pattern-card').classList.toggle('expanded');
+    });
+  },
 
-    main.addEventListener('click', handler);
+  // ══════════════ 进度页 ══════════════
+  _renderProgress() {
+    const main = document.getElementById('view-progress');
+    const data = Store.load();
+    const mastered = Object.values(data.patterns).filter(p => p.mastered).length;
+    const doneDays = Object.keys(data.daysDone).length;
+    const today = Store.today();
 
-    // 诊断：点击标题播放测试音（确认 AudioContext 能否出声）
-    document.querySelector('.topbar-title').addEventListener('click', () => {
-      if (!Voice._ctx) return;
-      const ctx = Voice._ctx;
-      if (ctx.state === 'suspended') ctx.resume();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = 440;
-      gain.gain.value = 0.3;
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(0);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
-      osc.stop(ctx.currentTime + 0.5);
+    let mapHtml = '';
+    for (let d = 1; d <= 30; d++) {
+      const done = Object.values(data.daysDone).some(v => v.day === d);
+      const isToday = data.currentDay === d && data.lastCompletedDate !== today;
+      mapHtml += `<span class="map-cell ${done ? 'done' : ''} ${isToday ? 'today' : ''}">${d}</span>`;
+    }
+
+    const weakHtml = data.weakList.length
+      ? data.weakList.map(key => {
+          const p = data.patterns[key];
+          return `
+            <div class="weak-item">
+              <button class="btn-play" data-text="${this._esc(key)}">▶</button>
+              <div class="weak-text">
+                <div class="weak-en">${this._esc(key)}</div>
+                <div class="weak-cn">${p ? this._esc(p.cn) : ''}</div>
+              </div>
+              <button class="weak-del" data-key="${this._esc(key)}">移除</button>
+            </div>
+          `;
+        }).join('')
+      : '<div class="empty-sub">没有弱项,很棒!</div>';
+
+    main.innerHTML = `
+      <div class="section-title">学习进度</div>
+      <div class="stat-row">
+        <div class="stat-card"><b>${data.streak}</b><span>连续天数</span></div>
+        <div class="stat-card"><b>${doneDays}</b><span>完成天数</span></div>
+        <div class="stat-card"><b>${mastered}</b><span>已掌握句型</span></div>
+      </div>
+      <div class="section-title">30 天课程地图</div>
+      <div class="map-grid">${mapHtml}</div>
+      <div class="section-title">弱项本</div>
+      <div class="weak-list">${weakHtml}</div>
+      <div class="section-title">数据管理</div>
+      <div class="data-row">
+        <button class="btn-ghost" data-action="export">导出进度</button>
+        <button class="btn-ghost" data-action="import">导入进度</button>
+        <input type="file" id="import-file" accept="application/json" hidden>
+      </div>
+      <div class="data-hint">换手机或 Mac 同步时:先在一台设备导出,再到另一台导入</div>
+    `;
+
+    main.querySelector('[data-action="export"]').addEventListener('click', () => Store.export());
+    main.querySelector('[data-action="import"]').addEventListener('click', () => {
+      main.querySelector('#import-file').click();
+    });
+    main.querySelector('#import-file').addEventListener('change', e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      Store.importFile(file).then(() => {
+        this._renderProgress();
+      }).catch(err => {
+        alert('导入失败:' + err.message);
+      });
+    });
+    main.querySelectorAll('.weak-del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const key = btn.dataset.key;
+        const idx = data.weakList.indexOf(key);
+        if (idx >= 0) data.weakList.splice(idx, 1);
+        Store.save(data);
+        this._renderProgress();
+      });
     });
   },
 
   _esc(s) {
-    if (!s) return '';
-    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  },
+    if (s == null) return '';
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());

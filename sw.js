@@ -1,18 +1,25 @@
-// English Lab — Service Worker（离线缓存 + PWA）
-const CACHE = 'english-lab-v2';
+// English Lab — Service Worker(离线缓存 + PWA)
+const CACHE = 'english-lab-v3';
 
 const PRECACHE = [
   './',
   './index.html',
   './manifest.json',
   './icon.svg',
+  './icon-180.png',
+  './icon-192.png',
+  './icon-512.png',
   './css/style.css',
   './js/voice.js',
+  './js/storage.js',
+  './js/study.js',
   './js/app.js',
   './data/patterns.js',
+  './data/screws.js',
+  './data/course.js'
 ];
 
-// 安装：预缓存所有核心文件
+// 安装:预缓存所有核心文件
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE).then(cache => cache.addAll(PRECACHE))
@@ -20,7 +27,7 @@ self.addEventListener('install', event => {
   );
 });
 
-// 激活：清理旧缓存
+// 激活:清理旧缓存
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -29,7 +36,7 @@ self.addEventListener('activate', event => {
   );
 });
 
-// 请求：网络优先（保证最新），缓存兜底（离线可用）
+// 请求:网络优先(保证最新),缓存兜底(离线可用)
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
@@ -38,14 +45,12 @@ self.addEventListener('fetch', event => {
 
   event.respondWith(
     fetch(event.request).then(response => {
-      // 网络成功 → 更新缓存 + 返回
       if (response.ok) {
         const clone = response.clone();
         caches.open(CACHE).then(cache => cache.put(event.request, clone));
       }
       return response;
     }).catch(() => {
-      // 网络失败 → 缓存兜底
       return caches.match(event.request);
     })
   );

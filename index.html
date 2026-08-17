@@ -19,13 +19,9 @@
 
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        window.location.reload();
-      });
-      navigator.serviceWorker.getRegistrations().then(regs => {
-        regs.forEach(r => r.unregister());
-      }).then(() => {
-        navigator.serviceWorker.register('sw.js?v=3').catch(() => {});
+      // 静默注册:不注销、不自动刷新,避免旧缓存切换时反复闪跳
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => {});
       });
     }
   </script>
